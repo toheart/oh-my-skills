@@ -18,14 +18,105 @@ import os
 import re
 import subprocess
 import sys
+import wave
 
 
 def run_ffprobe(args: list[str]) -> dict | None:
-    cmd = ["ffprobe", "-v", "quiet", "-print_format", "json"] + args
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    if result.returncode == 0:
-        return json.loads(result.stdout)
+    try:
+        cmd = ["ffprobe", "-v", "quiet", "-print_format", "json"] + args
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode == 0:
+            return json.loads(result.stdout)
+    except FileNotFoundError:
+        pass
+    if args:
+        media_path = args[-1]
+        if os.path.exists(media_path):
+            return fallback_probe_with_ffmpeg(media_path)
     return None
+
+
+def parse_duration_to_seconds(text: str) -> float | None:
+    match = re.search(r"(\d{2}):(\d{2}):(\d{2})\.(\d{2})", text)
+    if not match:
+        return None
+    hh, mm, ss, frac = match.groups()
+    return int(hh) * 3600 + int(mm) * 60 + int(ss) + int(frac) / 100
+
+
+def fallback_probe_with_ffmpeg(media_path: str) -> dict | None:
+    try:
+        result = subprocess.run(
+            ["ffmpeg", "-hide_banner", "-i", media_path],
+            capture_output=True,
+            text=True,
+        )
+    except FileNotFoundError:
+        return None
+
+    stderr = result.stderr or ""
+    info = {"streams": [], "format": {}}
+
+    duration_match = re.search(
+        r"Duration:\s*(\d{2}:\d{2}:\d{2}\.\d{2}),\s*start:\s*[-\d.]+,\s*bitrate:\s*(\d+)\s*kb/s",
+        stderr,
+    )
+    if duration_match:
+        duration_text, bitrate_kbps = duration_match.groups()
+        duration = parse_duration_to_seconds(duration_text)
+        if duration is not None:
+            info["format"]["duration"] = duration
+        info["format"]["bit_rate"] = int(bitrate_kbps) * 1000
+
+    for line in stderr.splitlines():
+        if " Video: " in line:
+            codec_match = re.search(r"Video:\s*([^,\s]+)", line)
+            size_match = re.search(r"(\d{2,5})x(\d{2,5})", line)
+            fps_match = re.search(r"(\d+(?:\.\d+)?)\s*fps", line)
+            stream = {
+                "codec_type": "video",
+                "codec_name": codec_match.group(1) if codec_match else "",
+                "duration": info["format"].get("duration", 0),
+            }
+            if size_match:
+                stream["width"] = int(size_match.group(1))
+                stream["height"] = int(size_match.group(2))
+            if fps_match:
+                fps = float(fps_match.group(1))
+                numerator = int(round(fps * 1000))
+                stream["r_frame_rate"] = f"{numerator}/1000"
+            info["streams"].append(stream)
+        elif " Audio: " in line:
+            codec_match = re.search(r"Audio:\s*([^,\s]+)", line)
+            bitrate_match = re.search(r"(\d+)\s*kb/s", line)
+            stream = {
+                "codec_type": "audio",
+                "codec_name": codec_match.group(1) if codec_match else "",
+                "duration": info["format"].get("duration", 0),
+            }
+            if bitrate_match:
+                stream["bit_rate"] = int(bitrate_match.group(1)) * 1000
+            info["streams"].append(stream)
+
+    return info if info["streams"] or info["format"] else None
+
+
+def get_media_duration(filepath: str, fallback: float | None = None) -> float | None:
+    if not os.path.exists(filepath):
+        return fallback
+
+    ext = os.path.splitext(filepath)[1].lower()
+    if ext == ".wav":
+        with wave.open(filepath, "rb") as wav_file:
+            frames = wav_file.getnframes()
+            rate = wav_file.getframerate()
+            return frames / float(rate)
+
+    info = run_ffprobe(["-show_format", filepath])
+    if info and info.get("format", {}).get("duration") is not None:
+        return float(info["format"]["duration"])
+
+    return fallback
 
 
 def parse_srt_end_time(srt_path: str) -> float | None:
@@ -41,7 +132,7 @@ def parse_srt_end_time(srt_path: str) -> float | None:
     return int(last[0]) * 3600 + int(last[1]) * 60 + int(last[2]) + int(last[3]) / 1000
 
 
-def check_video_specs(video_path: str) -> list[str]:
+def check_video_specs(video_path: str, expected_width: int, expected_height: int, expected_fps: int) -> list[str]:
     """检查视频基本规格。"""
     issues = []
     info = run_ffprobe(["-show_streams", "-show_format", video_path])
@@ -66,8 +157,8 @@ def check_video_specs(video_path: str) -> list[str]:
 
     w = int(video_stream.get("width", 0))
     h = int(video_stream.get("height", 0))
-    if w != 1920 or h != 1080:
-        issues.append(f"WARN: resolution {w}x{h}, expected 1920x1080")
+    if w != expected_width or h != expected_height:
+        issues.append(f"WARN: resolution {w}x{h}, expected {expected_width}x{expected_height}")
 
     codec = video_stream.get("codec_name", "")
     if codec != "h264":
@@ -78,15 +169,15 @@ def check_video_specs(video_path: str) -> list[str]:
         parts = fps_str.split("/")
         if len(parts) == 2 and int(parts[1]) > 0:
             fps = int(parts[0]) / int(parts[1])
-            if abs(fps - 30) > 1:
-                issues.append(f"WARN: framerate {fps:.1f}fps, expected ~30fps")
+            if abs(fps - expected_fps) > 1:
+                issues.append(f"WARN: framerate {fps:.1f}fps, expected ~{expected_fps}fps")
 
     a_codec = audio_stream.get("codec_name", "")
     if a_codec != "aac":
         issues.append(f"WARN: audio codec '{a_codec}', expected aac")
 
     a_bitrate = int(audio_stream.get("bit_rate", 0))
-    if a_bitrate < 10000:
+    if a_bitrate and a_bitrate < 10000:
         issues.append(f"ERROR: audio bitrate {a_bitrate}bps, too low (likely silent)")
 
     return issues
@@ -102,11 +193,16 @@ def check_av_sync(video_path: str) -> list[str]:
     v_dur = None
     a_dur = None
     for s in info.get("streams", []):
-        dur = float(s.get("duration", 0))
+        dur = float(s.get("duration", 0) or 0)
         if s["codec_type"] == "video":
             v_dur = dur
         elif s["codec_type"] == "audio":
             a_dur = dur
+
+    if (not v_dur or not a_dur) and info.get("format", {}).get("duration") is not None:
+        format_dur = float(info["format"]["duration"])
+        v_dur = v_dur or format_dur
+        a_dur = a_dur or format_dur
 
     if v_dur is not None and a_dur is not None:
         diff = abs(v_dur - a_dur)
@@ -176,11 +272,7 @@ def check_subtitle_sync(manifest: dict, audio_dir: str) -> list[str]:
             continue
 
         audio_path = os.path.join(audio_dir, page["audio"])
-        info = run_ffprobe(["-show_format", audio_path])
-        if info:
-            actual_dur = float(info["format"]["duration"])
-        else:
-            actual_dur = page["duration"]
+        actual_dur = get_media_duration(audio_path, page["duration"]) or page["duration"]
 
         # 字幕应在音频结束前结束（音频含尾部静音），但不应差太多
         # SRT 结束时间 应 < 音频时长（因为有尾部静音）
@@ -206,6 +298,9 @@ def main():
     parser = argparse.ArgumentParser(description="视频质量自检")
     parser.add_argument("video", help="视频文件路径")
     parser.add_argument("manifest", help="manifest.json 路径")
+    parser.add_argument("--width", type=int, default=1920, help="期望视频宽度（默认: 1920）")
+    parser.add_argument("--height", type=int, default=1080, help="期望视频高度（默认: 1080）")
+    parser.add_argument("--fps", type=int, default=30, help="期望帧率（默认: 30）")
     args = parser.parse_args()
 
     with open(args.manifest, "r", encoding="utf-8") as f:
@@ -215,7 +310,7 @@ def main():
 
     all_issues = []
     checks = [
-        ("Video Specs", lambda: check_video_specs(args.video)),
+        ("Video Specs", lambda: check_video_specs(args.video, args.width, args.height, args.fps)),
         ("A/V Sync", lambda: check_av_sync(args.video)),
         ("Audio Quality", lambda: check_audio_quality(args.video)),
         ("Subtitle Sync", lambda: check_subtitle_sync(manifest, audio_dir)),
