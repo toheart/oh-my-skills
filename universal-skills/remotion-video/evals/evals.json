@@ -1,0 +1,29 @@
+{
+  "skill_name": "remotion-video",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "我已经有一份 storyboard.json，里面有 7 个 scene、每段 narration 和 on_screen_text。请先做 preflight normalization，保留 captions 和 subtitle_path，再给我一个可直接走 Remotion SSR 的 props 文件和渲染命令。",
+      "expected_output": "The run should use the bundled normalization path, preserve subtitle-related fields, and produce a concrete SSR render command rather than vague advice.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "这个目录还没有 Remotion 项目。我想从零开始做一个 1080p explainer，输入只有结构化 storyboard。请用现成 starter template 起项目，说明安装依赖、composition id、props 文件位置和最终渲染步骤。",
+      "expected_output": "The run should choose the starter-template path, reference init_project.js or the bundled template workflow, and define an end-to-end bootstrap-plus-render path.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "我已经有一个 Remotion repo，不要整个覆盖掉。请把它改成模板化渲染：输入是文章转出来的 normalized storyboard，输出是 1080p MP4。要区分硬依赖和可选协作 skill，并避免把 frontend-design 当成硬依赖。",
+      "expected_output": "The run should choose the existing-project path, patch around a stable props contract, and keep optional companion skills clearly separated from runtime requirements.",
+      "files": []
+    },
+    {
+      "id": 4,
+      "prompt": "我想批量渲染 20 条同模板视频，每条只有标题、旁白、字幕和几张图片不一样。请按同一个 composition + 多份 props 的思路设计最小复用方案，并加上渲染后如何校验分辨率、时长、音频对齐和字幕时间。",
+      "expected_output": "The run should emphasize one stable composition, one normalized storyboard per output, and explicit use of the verification path for media acceptance.",
+      "files": []
+    }
+  ]
+}

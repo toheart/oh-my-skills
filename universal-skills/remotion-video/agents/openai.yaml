@@ -1,0 +1,4 @@
+interface:
+  display_name: "Remotion Video"
+  short_description: "Render structured videos with Remotion"
+  default_prompt: "Use $remotion-video to render a storyboard into a Remotion video."

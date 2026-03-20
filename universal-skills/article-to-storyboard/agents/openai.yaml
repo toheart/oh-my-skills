@@ -1,0 +1,4 @@
+interface:
+  display_name: "Article to Storyboard"
+  short_description: "Turn long-form ideas into video storyboards"
+  default_prompt: "Use $article-to-storyboard to turn an article into a structured storyboard for video rendering."
