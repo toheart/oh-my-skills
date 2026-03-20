@@ -4,6 +4,8 @@
 
 Use this reference when implementing or reviewing the actual Remotion render path.
 
+Compatibility: Remotion 4.x (4.0.365+). The bundled `render_video.ts` uses `openBrowser` with automatic `chromeMode` fallback between `headless-shell` and `chrome-for-testing`.
+
 ## Core Flow
 
 Remotion server-side rendering is easiest to reason about as a five-step pipeline:

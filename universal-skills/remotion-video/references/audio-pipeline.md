@@ -26,7 +26,7 @@ It intentionally does not:
 
 ## Default vs Better Voices
 
-The bundled default uses Edge TTS because it is easy to install, fast to run, and good enough for workflow validation.
+The bundled default uses Edge TTS (tested with edge-tts 6.x–7.x) because it is easy to install, fast to run, and good enough for workflow validation.
 For higher-stakes production voice quality, keep the same artifact contract but consider swapping only the speech provider:
 
 - OpenAI or Azure neural TTS when you want a stronger baseline voice with API-backed stability

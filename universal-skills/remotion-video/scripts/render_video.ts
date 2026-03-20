@@ -1,6 +1,9 @@
 /*
 Minimal Remotion SSR entrypoint for rendering a normalized storyboard.
 
+Compatibility: Remotion 4.x (tested with 4.0.365+).
+Requires @remotion/bundler and @remotion/renderer installed in the target project.
+
 Example:
   npx tsx scripts/render_video.ts \
     --entry remotion/index.ts \
@@ -20,8 +23,11 @@ type CliArgs = {
   composition: string;
   out: string;
   codec: string;
+  chromeMode: string;
   browserExecutable: string;
 };
+
+type ChromeMode = 'chrome-for-testing' | 'headless-shell';
 
 const findDefaultBrowserExecutable = () => {
   const candidates =
@@ -29,6 +35,8 @@ const findDefaultBrowserExecutable = () => {
       ? [
           'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
           'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+          `${process.env.LOCALAPPDATA ?? ''}\\Google\\Chrome\\Application\\chrome.exe`,
+          `${process.env.PROGRAMFILES ?? ''}\\Google\\Chrome\\Application\\chrome.exe`,
         ]
       : process.platform === 'darwin'
         ? [
@@ -43,9 +51,11 @@ const findDefaultBrowserExecutable = () => {
             '/snap/bin/chromium',
           ];
 
-  return candidates.find((candidate) => {
-    return existsSync(candidate);
-  }) ?? '';
+  return (
+    candidates.find((candidate) => {
+      return candidate && existsSync(candidate);
+    }) ?? ''
+  );
 };
 
 function parseArgs(argv: string[]): CliArgs {
@@ -55,7 +65,9 @@ function parseArgs(argv: string[]): CliArgs {
     composition: 'RemotionVideo',
     out: '',
     codec: 'h264',
-    browserExecutable: process.env.REMOTION_BROWSER_EXECUTABLE ?? findDefaultBrowserExecutable(),
+    chromeMode: process.env.REMOTION_CHROME_MODE ?? 'auto',
+    browserExecutable:
+      process.env.REMOTION_BROWSER_EXECUTABLE ?? findDefaultBrowserExecutable(),
   };
 
   for (let i = 0; i < argv.length; i += 1) {
@@ -66,6 +78,7 @@ function parseArgs(argv: string[]): CliArgs {
     if (arg === '--composition' && next) defaults.composition = next;
     if (arg === '--out' && next) defaults.out = next;
     if (arg === '--codec' && next) defaults.codec = next;
+    if (arg === '--chrome-mode' && next) defaults.chromeMode = next;
     if (arg === '--browser-executable' && next) defaults.browserExecutable = next;
   }
 
@@ -85,8 +98,12 @@ async function readJson<T>(filePath: string): Promise<T> {
 
 async function loadRemotionModules(entry: string) {
   const requireFromEntry = createRequire(entry);
-  const bundler = requireFromEntry('@remotion/bundler') as typeof import('@remotion/bundler');
-  const renderer = requireFromEntry('@remotion/renderer') as typeof import('@remotion/renderer');
+  const bundler = requireFromEntry(
+    '@remotion/bundler'
+  ) as typeof import('@remotion/bundler');
+  const renderer = requireFromEntry(
+    '@remotion/renderer'
+  ) as typeof import('@remotion/renderer');
   return {
     bundle: bundler.bundle,
     openBrowser: renderer.openBrowser,
@@ -95,13 +112,58 @@ async function loadRemotionModules(entry: string) {
   };
 }
 
+/**
+ * 尝试以指定 chromeMode 打开浏览器；如果失败则 fallback 到另一种模式。
+ * Remotion 4.x 在不同安装环境下对 chromeMode 的支持不同：
+ *   - chrome-for-testing: 需要 Chrome for Testing 二进制
+ *   - headless-shell: 使用 Remotion 自带的 headless shell
+ * 当用户传 'auto' 时，先尝试 headless-shell（兼容性最好），失败再尝试 chrome-for-testing。
+ */
+async function openBrowserWithFallback(
+  openBrowser: Awaited<ReturnType<typeof loadRemotionModules>>['openBrowser'],
+  requestedMode: string,
+  browserExecutable: string
+) {
+  const modeOrder: ChromeMode[] =
+    requestedMode === 'chrome-for-testing'
+      ? ['chrome-for-testing', 'headless-shell']
+      : requestedMode === 'headless-shell'
+        ? ['headless-shell', 'chrome-for-testing']
+        : ['headless-shell', 'chrome-for-testing'];
+
+  let lastError: unknown;
+  for (const mode of modeOrder) {
+    try {
+      console.log(`Trying to open browser with chromeMode=${mode}`);
+      const browser = await openBrowser('chrome', {
+        browserExecutable: browserExecutable || null,
+        chromeMode: mode,
+        logLevel: 'info',
+      });
+      console.log(`Browser opened successfully with chromeMode=${mode}`);
+      return browser;
+    } catch (error) {
+      lastError = error;
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(
+        `WARN: chromeMode=${mode} failed: ${message}. ` +
+          (mode === modeOrder[modeOrder.length - 1]
+            ? 'No more fallback modes.'
+            : 'Trying next mode...')
+      );
+    }
+  }
+  throw lastError;
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const entry = path.resolve(args.entry);
   const propsPath = path.resolve(args.props);
   const outPath = path.resolve(args.out);
   const inputProps = await readJson<Record<string, unknown>>(propsPath);
-  const {bundle, openBrowser, renderMedia, selectComposition} = await loadRemotionModules(entry);
+  const {bundle, openBrowser, renderMedia, selectComposition} =
+    await loadRemotionModules(entry);
 
   await fs.mkdir(path.dirname(outPath), {recursive: true});
 
@@ -114,11 +176,11 @@ async function main() {
     },
   });
 
-  const browser = await openBrowser('chrome', {
-    browserExecutable: args.browserExecutable || null,
-    chromeMode: 'chrome-for-testing',
-    logLevel: 'info',
-  });
+  const browser = await openBrowserWithFallback(
+    openBrowser,
+    args.chromeMode,
+    args.browserExecutable
+  );
 
   try {
     console.log(`Selecting composition: ${args.composition}`);
@@ -147,7 +209,8 @@ async function main() {
       puppeteerInstance: browser,
       onProgress: (progress) => {
         console.log(
-          `Render progress: rendered=${progress.renderedFrames} encoded=${progress.encodedFrames} stage=${progress.stitchStage}`
+          `Render progress: rendered=${progress.renderedFrames} ` +
+            `encoded=${progress.encodedFrames} stage=${progress.stitchStage}`
         );
       },
     });
@@ -161,17 +224,20 @@ async function main() {
   }
 
   console.log(`Render complete: ${outPath}`);
-  process.exit(0);
 }
 
-main().catch((error) => {
-  if (error instanceof Error) {
-    console.error(`ERROR: ${error.message}`);
-    if (error.stack) {
-      console.error(error.stack);
+main()
+  .then(() => {
+    setTimeout(() => process.exit(0), 300);
+  })
+  .catch((error) => {
+    if (error instanceof Error) {
+      console.error(`ERROR: ${error.message}`);
+      if (error.stack) {
+        console.error(error.stack);
+      }
+    } else {
+      console.error(`ERROR: ${String(error)}`);
     }
-  } else {
-    console.error(`ERROR: ${String(error)}`);
-  }
-  process.exit(1);
-});
+    setTimeout(() => process.exit(1), 300);
+  });

@@ -179,13 +179,23 @@ def score_storyboard_profile(storyboard: dict[str, Any]) -> dict[str, Any]:
         reverse=True,
     )
     top_profile, top_score = ordered_candidates[0]
-    if top_score <= 0:
+    runner_up_score = ordered_candidates[1][1] if len(ordered_candidates) > 1 else 0
+
+    # 当首位和次位得分差距不足 2 时，认为信号不够明确，回退到 balanced
+    if top_score <= 0 or (top_score > 0 and top_score - runner_up_score < 2):
         top_profile = "balanced"
 
     profile = dict(AUTO_TTS_PROFILES[top_profile])
     profile["profile"] = top_profile
     if top_score <= 0:
         profile["reason"] = "no strong topic signal detected, so a balanced narration preset was selected"
+    elif top_score - runner_up_score < 2:
+        runner_up_profile = ordered_candidates[1][0] if len(ordered_candidates) > 1 else "none"
+        profile["reason"] = (
+            f"top profiles '{ordered_candidates[0][0]}' ({top_score}) and "
+            f"'{runner_up_profile}' ({runner_up_score}) are too close, "
+            f"falling back to balanced for stability"
+        )
     else:
         profile["reason"] = f"matched profile '{top_profile}' from storyboard title, source, scenes, and narration"
     return profile

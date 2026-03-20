@@ -15,19 +15,26 @@ Do not rewrite normalization, project bootstrap, SSR rendering, or verification 
 
 ## Compatibility
 
+Tested version ranges:
+
+- **Remotion**: 4.x (4.0.365+). The bundled starter template and render script target Remotion 4 APIs. Remotion 3.x is not supported.
+- **edge-tts**: 6.x–7.x (pip install edge-tts). If `SubMaker` or `Communicate.stream()` signature changes in a future release, pin to a working version.
+- **Node.js**: 18+
+- **Python**: 3.9+
+
 Runtime dependencies:
 
 - Node.js 18+
 - A package manager such as `npm`, `pnpm`, or `yarn`
-- Remotion packages in the project that will render the video
+- Remotion 4.x packages (`remotion`, `@remotion/bundler`, `@remotion/renderer`) in the project that will render the video
 - TypeScript and React support
 - `ffmpeg` recommended for media inspection and output verification
-- Python 3.x if you want to generate voiceover and subtitles using the bundled audio script
-- `edge-tts` if you want to generate voiceover and subtitles from storyboard narration
+- Python 3.9+ if you want to generate voiceover and subtitles using the bundled audio script
+- `edge-tts` (6.x–7.x) if you want to generate voiceover and subtitles from storyboard narration
 
 Bundled defaults are optimized for a Windows-friendly and zh-CN-friendly workflow:
 
-- `scripts/render_video.ts` tries common Chrome paths first and then falls back to `REMOTION_BROWSER_EXECUTABLE`
+- `scripts/render_video.ts` tries common Chrome paths first and then falls back to `REMOTION_BROWSER_EXECUTABLE`. It also supports `--chrome-mode` with automatic fallback between `headless-shell` and `chrome-for-testing` to handle different browser installations.
 - `scripts/generate_audio.py` defaults to zh-CN Edge TTS voices unless the user explicitly overrides voice selection
 - the starter template uses typography that works well for Chinese and English editorial explainers
 
@@ -150,7 +157,7 @@ Use this when the user already has a working Remotion repo or composition.
 Use this when the user needs a fresh project or when the existing repo is too messy to be the fastest path.
 
 ```bash
-node scripts/init_project.js <target-project-dir>
+node scripts/init_project.mjs <target-project-dir>
 ```
 
 Then install dependencies in the target project and use the starter composition `RemotionVideo`.
@@ -306,7 +313,7 @@ Read these files as needed:
 
 Use these scripts by default instead of recreating their logic:
 
-- `scripts/init_project.js`: copy the starter template into a new target project
+- `scripts/init_project.mjs`: copy the starter template into a new target project
 - `scripts/normalize_storyboard.py`: normalize and validate structured input
 - `scripts/generate_audio.py`: generate voiceover, subtitles, and audio-driven timing
 - `scripts/render_video.ts`: run the shared SSR render path

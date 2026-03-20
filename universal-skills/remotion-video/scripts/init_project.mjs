@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 /*
 Copy the starter template into a target directory.
+File uses .mjs extension so ESM import/export works regardless of the
+parent project's "type" setting in package.json.
 
 Usage:
-  node init_project.js <target-dir>
+  node scripts/init_project.mjs <target-dir>
 */
 
 import fs from 'node:fs/promises';
@@ -31,7 +33,7 @@ async function copyDir(source, destination) {
 async function main() {
   const targetDir = process.argv[2];
   if (!targetDir) {
-    throw new Error('Missing target directory. Usage: node init_project.js <target-dir>');
+    throw new Error('Missing target directory. Usage: node scripts/init_project.mjs <target-dir>');
   }
 
   const resolvedTarget = path.resolve(process.cwd(), targetDir);
