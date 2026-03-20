@@ -18,6 +18,7 @@ import argparse
 import json
 import math
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -36,10 +37,106 @@ def ensure_even(value: int) -> int:
     return value if value % 2 == 0 else value + 1
 
 
+def parse_page_selector(value: str, total_pages: int) -> set[int]:
+    pages: set[int] = set()
+    for chunk in value.split(","):
+        token = chunk.strip()
+        if not token:
+            continue
+        if "-" in token:
+            start_text, end_text = token.split("-", 1)
+            start = int(start_text)
+            end = int(end_text)
+            if start > end:
+                raise ValueError(f"invalid page range '{token}'")
+            pages.update(range(start, end + 1))
+        else:
+            pages.add(int(token))
+
+    invalid = sorted(page for page in pages if page < 1 or page > total_pages)
+    if invalid:
+        raise ValueError(
+            f"selected pages out of range: {invalid}; valid pages are 1-{total_pages}"
+        )
+    return pages
+
+
+def resolve_target_pages(pages: list[dict], page_selector: str | None, chapter_id: str | None) -> set[int] | None:
+    if page_selector and chapter_id:
+        raise ValueError("--pages and --chapter cannot be used together")
+
+    if page_selector:
+        return parse_page_selector(page_selector, len(pages))
+
+    if chapter_id:
+        matched = {
+            page["page"] for page in pages if page.get("chapter_id") == chapter_id
+        }
+        if not matched:
+            raise ValueError(f"chapter_id '{chapter_id}' not found in manifest")
+        return matched
+
+    return None
+
+
+def probe_duration(filepath: str) -> float | None:
+    result = subprocess.run(
+        ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", filepath],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return None
+    try:
+        info = json.loads(result.stdout)
+        return float(info["format"]["duration"])
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+        return None
+
+
+def resolve_bgm_path(raw_path: str, workspace_dir: str, audio_dir: str) -> str:
+    candidate_paths = [
+        raw_path,
+        os.path.join(workspace_dir, raw_path),
+        os.path.join(audio_dir, raw_path),
+    ]
+    for candidate in candidate_paths:
+        if os.path.exists(candidate):
+            return os.path.abspath(candidate)
+    print(f"ERROR: BGM file not found: {raw_path}", file=sys.stderr)
+    sys.exit(1)
+
+
+def resolve_bgm_config(manifest: dict, args: argparse.Namespace, workspace_dir: str, audio_dir: str) -> dict | None:
+    config = manifest.get("bgm") if isinstance(manifest.get("bgm"), dict) else {}
+    bgm_path = config.get("file")
+    enabled = bool(config.get("enabled") and bgm_path)
+
+    if args.bgm_file:
+        bgm_path = args.bgm_file
+        enabled = True
+
+    if not enabled or not bgm_path:
+        return None
+
+    gain_db = args.bgm_gain_db if args.bgm_gain_db is not None else config.get("gain_db", -24.0)
+    fade_in = args.bgm_fade_in if args.bgm_fade_in is not None else config.get("fade_in", 1.0)
+    fade_out = args.bgm_fade_out if args.bgm_fade_out is not None else config.get("fade_out", 1.5)
+
+    return {
+        "file": resolve_bgm_path(str(bgm_path), workspace_dir, audio_dir),
+        "gain_db": float(gain_db),
+        "fade_in": float(fade_in),
+        "fade_out": float(fade_out),
+    }
+
+
 def find_slide_image(workspace_dir: str, page_num: int) -> str:
-    """查找对应页码的幻灯片图片，支持根目录与 preview/ 子目录。"""
+    """查找对应页码的幻灯片图片，优先使用原生 PPT 导出的 images/。"""
     search_dirs = [
         workspace_dir,
+        os.path.join(workspace_dir, "images"),
+        os.path.join(workspace_dir, "native-preview"),
         os.path.join(workspace_dir, "preview"),
         os.path.join(workspace_dir, "build"),
     ]
@@ -203,7 +300,7 @@ def concat_clips(clip_paths: list[str], output_path: str, transition: float):
         os.makedirs(output_dir, exist_ok=True)
 
     if len(clip_paths) == 1:
-        os.replace(clip_paths[0], output_path)
+        shutil.copyfile(clip_paths[0], output_path)
         return
 
     # 使用 concat demuxer 拼接（简单可靠）
@@ -296,6 +393,31 @@ def _concat_with_xfade(clip_paths: list[str], output_path: str, transition: floa
     )
 
 
+def mix_global_bgm(input_video: str, output_path: str, bgm: dict):
+    duration = probe_duration(input_video)
+    if duration is None:
+        print("ERROR: cannot determine video duration for BGM mix", file=sys.stderr)
+        sys.exit(1)
+
+    bgm_chain = f"[0:a]volume={bgm['gain_db']}dB,atrim=0:{duration:.2f}"
+    if bgm["fade_in"] > 0:
+        bgm_chain += f",afade=t=in:st=0:d={min(bgm['fade_in'], duration):.2f}"
+    if bgm["fade_out"] > 0 and duration > bgm["fade_out"]:
+        bgm_chain += f",afade=t=out:st={max(duration - bgm['fade_out'], 0):.2f}:d={bgm['fade_out']:.2f}"
+    bgm_chain += "[bgm]"
+
+    run_ffmpeg([
+        "-stream_loop", "-1", "-i", bgm["file"],
+        "-i", input_video,
+        "-filter_complex", bgm_chain + ";[1:a][bgm]amix=inputs=2:duration=first:dropout_transition=0[aout]",
+        "-map", "1:v",
+        "-map", "[aout]",
+        "-c:v", "copy",
+        "-c:a", "aac", "-b:a", "128k",
+        output_path,
+    ], desc="global bgm mix")
+
+
 def main():
     parser = argparse.ArgumentParser(description="合成 PPT 讲解视频")
     parser.add_argument("manifest", help="manifest.json 路径")
@@ -307,12 +429,21 @@ def main():
     parser.add_argument("--fps", type=int, default=30, help="输出帧率（默认: 30）")
     parser.add_argument("--subtitle-font-size", type=int, default=12, help="字幕字号（默认: 12）")
     parser.add_argument("--subtitle-margin-v", type=int, default=42, help="字幕底部边距（默认: 42）")
+    parser.add_argument("--pages", default=None, help="仅重渲染指定页码，例如 3,5-7")
+    parser.add_argument("--chapter", default=None, help="仅重渲染指定 chapter_id 下的页面")
+    parser.add_argument("--bgm-file", default=None, help="为最终视频叠加全局 BGM 文件")
+    parser.add_argument("--bgm-gain-db", type=float, default=None, help="全局 BGM 音量（dB，默认跟随 manifest 或 -24）")
+    parser.add_argument("--bgm-fade-in", type=float, default=None, help="全局 BGM 淡入时长（秒）")
+    parser.add_argument("--bgm-fade-out", type=float, default=None, help="全局 BGM 淡出时长（秒）")
     parser.add_argument(
         "--motion",
         choices=["auto", "none", "drift-right", "drift-left", "drift-down", "drift-up"],
         default="none",
         help="页面轻动态模式（默认: none，保持静态）",
     )
+    parser.set_defaults(reuse_clips=True)
+    parser.add_argument("--reuse-clips", dest="reuse_clips", action="store_true", help="局部重渲染时复用未改动的缓存片段（默认开启）")
+    parser.add_argument("--no-reuse-clips", dest="reuse_clips", action="store_false", help="局部重渲染时不复用缓存片段")
     parser.add_argument("--motion-scale", type=float, default=0.06, help="轻动态放大比例（默认: 0.06）")
     parser.add_argument("--fade-in", type=float, default=0.28, help="每页入场淡化时长（默认: 0.28）")
     parser.add_argument("--fade-out", type=float, default=0.18, help="每页退场淡化时长（默认: 0.18）")
@@ -330,45 +461,70 @@ def main():
         print("ERROR: manifest has no pages", file=sys.stderr)
         sys.exit(1)
 
-    # 临时目录存放中间片段
+    try:
+        target_pages = resolve_target_pages(pages, args.pages, args.chapter)
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    if target_pages is None:
+        print(f"Rendering all {len(pages)} pages")
+    else:
+        selected_text = ", ".join(str(page) for page in sorted(target_pages))
+        print(f"Rendering selected pages and reusing cached clips where possible: {selected_text}")
+
+    bgm = resolve_bgm_config(manifest, args, workspace_dir, audio_dir)
+    if bgm:
+        print(
+            f"Applying global BGM from {bgm['file']} "
+            f"(gain={bgm['gain_db']:.1f}dB, fade_in={bgm['fade_in']:.1f}s, fade_out={bgm['fade_out']:.1f}s)"
+        )
+
+    # 缓存目录存放中间片段，供局部重渲染复用
     clips_dir = os.path.join(workspace_dir, "build", "_clips")
     os.makedirs(clips_dir, exist_ok=True)
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
     clip_paths = []
     for page in pages:
         page_num = page["page"]
         clip_path = os.path.join(clips_dir, f"clip_{page_num:03d}.mp4")
-        print(f"Rendering page {page_num}/{len(pages)}: {page.get('heading', '')}")
-        generate_page_clip(
-            page,
-            workspace_dir,
-            audio_dir,
-            clip_path,
-            args.transition,
-            args.width,
-            args.height,
-            args.fps,
-            args.subtitle_font_size,
-            args.subtitle_margin_v,
-            args.motion,
-            args.motion_scale,
-            args.fade_in,
-            args.fade_out,
-        )
+        should_render = target_pages is None or page_num in target_pages or not (args.reuse_clips and os.path.exists(clip_path))
+        if should_render:
+            print(f"Rendering page {page_num}/{len(pages)}: {page.get('heading', '')}")
+            generate_page_clip(
+                page,
+                workspace_dir,
+                audio_dir,
+                clip_path,
+                args.transition,
+                args.width,
+                args.height,
+                args.fps,
+                args.subtitle_font_size,
+                args.subtitle_margin_v,
+                args.motion,
+                args.motion_scale,
+                args.fade_in,
+                args.fade_out,
+            )
+        else:
+            print(f"Reusing cached clip for page {page_num}/{len(pages)}: {page.get('heading', '')}")
         clip_paths.append(clip_path)
 
     print(f"\nConcatenating {len(clip_paths)} clips...")
-    concat_clips(clip_paths, output_path, args.transition)
+    concat_output = output_path
+    temp_concat_output = None
+    if bgm:
+        temp_concat_output = os.path.join(workspace_dir, "build", "_final_without_bgm.mp4")
+        concat_output = temp_concat_output
 
-    # 清理临时片段
-    for p in clip_paths:
-        if os.path.exists(p):
-            os.unlink(p)
-    if os.path.exists(clips_dir):
-        try:
-            os.rmdir(clips_dir)
-        except OSError:
-            pass
+    concat_clips(clip_paths, concat_output, args.transition)
+
+    if bgm:
+        mix_global_bgm(temp_concat_output, output_path, bgm)
+        if os.path.exists(temp_concat_output):
+            os.unlink(temp_concat_output)
 
     total_duration = sum(p["duration"] for p in pages)
     print(f"\nDone! Output: {output_path}")

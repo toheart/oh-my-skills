@@ -21,6 +21,8 @@ import re
 import subprocess
 import sys
 
+from slide_spec import document_label, load_slide_spec
+
 try:
     import edge_tts
     from edge_tts import Communicate, SubMaker
@@ -114,23 +116,81 @@ def score_profile(text: str, keywords: set[str]) -> int:
     return sum(1 for keyword in keywords if keyword in text)
 
 
-def pick_auto_profile(outline: dict) -> dict:
-    tts_from_outline = outline.get("tts")
+def parse_page_selector(value: str, total_pages: int) -> set[int]:
+    pages: set[int] = set()
+    for chunk in value.split(","):
+        token = chunk.strip()
+        if not token:
+            continue
+        if "-" in token:
+            start_text, end_text = token.split("-", 1)
+            start = int(start_text)
+            end = int(end_text)
+            if start > end:
+                raise ValueError(f"invalid page range '{token}'")
+            pages.update(range(start, end + 1))
+        else:
+            pages.add(int(token))
+
+    invalid = sorted(page for page in pages if page < 1 or page > total_pages)
+    if invalid:
+        raise ValueError(
+            f"selected pages out of range: {invalid}; valid pages are 1-{total_pages}"
+        )
+    return pages
+
+
+def resolve_target_pages(pages: list[dict], page_selector: str | None, chapter_id: str | None) -> set[int] | None:
+    if page_selector and chapter_id:
+        raise ValueError("--pages and --chapter cannot be used together")
+
+    if page_selector:
+        return parse_page_selector(page_selector, len(pages))
+
+    if chapter_id:
+        matched = {
+            index + 1
+            for index, page in enumerate(pages)
+            if page.get("chapter_id") == chapter_id
+        }
+        if not matched:
+            raise ValueError(f"chapter_id '{chapter_id}' not found in the source document")
+        return matched
+
+    return None
+
+
+def iter_pages(document: dict) -> list[dict]:
+    if isinstance(document.get("slides"), list):
+        return document["slides"]
+    if isinstance(document.get("pages"), list):
+        return document["pages"]
+    return []
+
+
+def page_script(page: dict) -> str:
+    if isinstance(page.get("narration"), dict) and page["narration"].get("script"):
+        return str(page["narration"]["script"])
+    return str(page.get("script", ""))
+
+
+def pick_auto_profile(document: dict) -> dict:
+    tts_from_outline = document.get("tts")
     if isinstance(tts_from_outline, dict) and tts_from_outline.get("profile") in AUTO_TTS_PROFILES:
         profile_name = tts_from_outline["profile"]
         profile = dict(AUTO_TTS_PROFILES[profile_name])
         profile["profile"] = profile_name
         profile["reason"] = (
-            f"outline.json requested tts.profile='{profile_name}', so the auto preset follows that hint"
+            f"the source document requested tts.profile='{profile_name}', so the auto preset follows that hint"
         )
         return profile
 
-    text_fragments = [outline.get("title", "")]
-    for slide in outline.get("slides", []):
+    text_fragments = [document.get("title", "")]
+    for slide in iter_pages(document):
         text_fragments.extend([
             slide.get("heading", ""),
             " ".join(slide.get("bullets", [])),
-            slide.get("script", ""),
+            page_script(slide),
         ])
     corpus = normalize_text(" ".join(text_fragments))
 
@@ -183,9 +243,9 @@ def merge_tts_config(base: dict, override) -> dict:
     return config
 
 
-def resolve_tts_config(outline: dict, args: argparse.Namespace) -> dict:
-    outline_tts = outline.get("tts") if isinstance(outline.get("tts"), dict) else {}
-    auto_profile = pick_auto_profile(outline)
+def resolve_tts_config(document: dict, args: argparse.Namespace) -> dict:
+    outline_tts = document.get("tts") if isinstance(document.get("tts"), dict) else {}
+    auto_profile = pick_auto_profile(document)
 
     if args.voice == "auto":
         resolved = merge_tts_config(DEFAULT_TTS_CONFIG, auto_profile)
@@ -306,26 +366,47 @@ async def get_audio_duration(filepath: str) -> float:
 
 async def main():
     parser = argparse.ArgumentParser(description="为每页讲稿生成 Edge-TTS 配音和字幕")
-    parser.add_argument("outline", help="大纲 JSON 文件路径")
+    parser.add_argument("source_json", help="outline.json 或 slide-spec.json 路径")
     parser.add_argument("output_dir", help="输出目录")
     parser.add_argument("--voice", default="auto", help="TTS 语音，支持具体 voice id 或 auto（默认: auto）")
     parser.add_argument("--rate", default=None, help="语速调节；未提供时跟随 auto profile 或 outline.json 中的 tts 配置")
     parser.add_argument("--volume", default=None, help="音量调节；未提供时跟随 auto profile 或 outline.json 中的 tts 配置")
     parser.add_argument("--pitch", default=None, help="音高调节；未提供时跟随 auto profile 或 outline.json 中的 tts 配置")
     parser.add_argument("--pause", type=float, default=None, help="每页音频末尾追加的静音间隔/秒；未提供时跟随配置")
+    parser.add_argument("--pages", default=None, help="仅重生成指定页码，例如 3,5-7")
+    parser.add_argument("--chapter", default=None, help="仅重生成指定 chapter_id 下的页面")
     args = parser.parse_args()
 
-    with open(args.outline, "r", encoding="utf-8") as f:
-        outline = json.load(f)
+    source_document = load_slide_spec(args.source_json)
 
     os.makedirs(args.output_dir, exist_ok=True)
 
-    slides = outline.get("slides", [])
+    slides = source_document.get("pages", [])
     if not slides:
-        print("ERROR: outline.json has no slides", file=sys.stderr)
+        print(f"ERROR: {document_label(args.source_json)} has no pages", file=sys.stderr)
         sys.exit(1)
 
-    base_tts_config = resolve_tts_config(outline, args)
+    try:
+        target_pages = resolve_target_pages(slides, args.pages, args.chapter)
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    partial_run = target_pages is not None and len(target_pages) != len(slides)
+    existing_manifest_path = os.path.join(args.output_dir, "manifest.json")
+    existing_manifest = None
+    if os.path.exists(existing_manifest_path):
+        with open(existing_manifest_path, "r", encoding="utf-8") as f:
+            existing_manifest = json.load(f)
+
+    if partial_run and not existing_manifest:
+        print(
+            "ERROR: partial audio regeneration requires an existing manifest.json in the output directory",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    base_tts_config = resolve_tts_config(source_document, args)
     print("Resolved TTS profile:")
     print(
         "  "
@@ -336,7 +417,10 @@ async def main():
     print(f"  reason={base_tts_config['reason']}")
 
     manifest = {
-        "title": outline.get("title", ""),
+        "title": source_document.get("title", ""),
+        "bgm": source_document.get("bgm") if isinstance(source_document.get("bgm"), dict) else (
+            existing_manifest.get("bgm") if isinstance(existing_manifest, dict) else None
+        ),
         "tts": {
             "profile": base_tts_config["profile"],
             "voice": base_tts_config["voice"],
@@ -349,15 +433,40 @@ async def main():
         },
         "pages": [],
     }
+    existing_pages = {}
+    if isinstance(existing_manifest, dict):
+        existing_pages = {
+            page.get("page"): page for page in existing_manifest.get("pages", []) if page.get("page")
+        }
+
+    if target_pages is None:
+        print(f"Generating audio for all {len(slides)} pages")
+    else:
+        selected_text = ", ".join(str(page) for page in sorted(target_pages))
+        print(f"Generating audio only for pages: {selected_text}")
 
     for i, slide in enumerate(slides):
         page_num = i + 1
-        script = slide.get("script", "")
+        script = page_script(slide)
         page_tts_config = merge_tts_config(base_tts_config, slide.get("tts"))
+        if target_pages is not None and page_num not in target_pages:
+            existing_entry = existing_pages.get(page_num)
+            if not existing_entry:
+                print(
+                    f"ERROR: page {page_num} was not selected and has no existing manifest entry to reuse",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
+            manifest["pages"].append(existing_entry)
+            print(f"Reusing page {page_num}: {slide.get('heading', '')}")
+            continue
+
         if not script.strip():
             print(f"WARNING: page {page_num} has empty script, skipping TTS", file=sys.stderr)
             manifest["pages"].append({
                 "page": page_num,
+                "slide_id": slide.get("slide_id"),
+                "chapter_id": slide.get("chapter_id"),
                 "heading": slide.get("heading", ""),
                 "audio": None,
                 "srt": None,
@@ -392,6 +501,8 @@ async def main():
 
         manifest["pages"].append({
             "page": page_num,
+            "slide_id": slide.get("slide_id"),
+            "chapter_id": slide.get("chapter_id"),
             "heading": slide.get("heading", ""),
             "audio": os.path.basename(wav_path),
             "srt": os.path.basename(srt_path),
@@ -406,13 +517,12 @@ async def main():
         })
         print(f"  -> {duration:.1f}s")
 
-    manifest_path = os.path.join(args.output_dir, "manifest.json")
-    with open(manifest_path, "w", encoding="utf-8") as f:
+    with open(existing_manifest_path, "w", encoding="utf-8") as f:
         json.dump(manifest, f, ensure_ascii=False, indent=2)
 
     total_duration = sum(p["duration"] for p in manifest["pages"])
     print(f"\nDone. Total duration: {total_duration:.1f}s ({total_duration/60:.1f}min)")
-    print(f"Manifest saved to: {manifest_path}")
+    print(f"Manifest saved to: {existing_manifest_path}")
 
 
 if __name__ == "__main__":

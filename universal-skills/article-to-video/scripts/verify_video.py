@@ -16,14 +16,53 @@ import argparse
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import wave
 
 
+def resolve_binary(name: str) -> str | None:
+    direct = shutil.which(name) or shutil.which(f"{name}.exe")
+    if direct:
+        return direct
+
+    where_cmd = ["where.exe", name]
+    result = subprocess.run(where_cmd, capture_output=True, text=True)
+    if result.returncode == 0:
+        for line in result.stdout.splitlines():
+            candidate = line.strip()
+            if candidate:
+                return candidate
+
+    roots = [
+        os.path.join(os.environ.get("LOCALAPPDATA", ""), "Microsoft", "WinGet", "Packages"),
+        "C:\\Program Files",
+        "C:\\Program Files (x86)",
+    ]
+    executable_names = [name, f"{name}.exe"]
+    for root in roots:
+        if not root or not os.path.exists(root):
+            continue
+        for current_root, _, files in os.walk(root):
+            lowered = {filename.lower(): filename for filename in files}
+            for executable in executable_names:
+                if executable.lower() in lowered:
+                    return os.path.join(current_root, lowered[executable.lower()])
+    return None
+
+
 def run_ffprobe(args: list[str]) -> dict | None:
+    ffprobe = resolve_binary("ffprobe")
+    if not ffprobe:
+        if args:
+            media_path = args[-1]
+            if os.path.exists(media_path):
+                return fallback_probe_with_ffmpeg(media_path)
+        return None
+
     try:
-        cmd = ["ffprobe", "-v", "quiet", "-print_format", "json"] + args
+        cmd = [ffprobe, "-v", "quiet", "-print_format", "json"] + args
         result = subprocess.run(cmd, capture_output=True, text=True)
         if result.returncode == 0:
             return json.loads(result.stdout)
@@ -45,9 +84,12 @@ def parse_duration_to_seconds(text: str) -> float | None:
 
 
 def fallback_probe_with_ffmpeg(media_path: str) -> dict | None:
+    ffmpeg = resolve_binary("ffmpeg")
+    if not ffmpeg:
+        return None
     try:
         result = subprocess.run(
-            ["ffmpeg", "-hide_banner", "-i", media_path],
+            [ffmpeg, "-hide_banner", "-i", media_path],
             capture_output=True,
             text=True,
         )
@@ -222,8 +264,12 @@ def check_av_sync(video_path: str) -> list[str]:
 def check_audio_quality(video_path: str) -> list[str]:
     """检测音频质量：异常静音段、整体音量过低。"""
     issues = []
+    ffmpeg = resolve_binary("ffmpeg")
+    if not ffmpeg:
+        return ["WARN: ffmpeg not found, skipping audio-quality checks"]
+
     cmd = [
-        "ffmpeg", "-hide_banner", "-i", video_path,
+        ffmpeg, "-hide_banner", "-i", video_path,
         "-af", "silencedetect=noise=-40dB:d=3",
         "-f", "null", "-"
     ]
@@ -237,7 +283,7 @@ def check_audio_quality(video_path: str) -> list[str]:
             issues.append(f"WARN: long silence detected ({dur:.1f}s), may indicate audio issue")
 
     vol_cmd = [
-        "ffmpeg", "-hide_banner", "-i", video_path,
+        ffmpeg, "-hide_banner", "-i", video_path,
         "-af", "volumedetect", "-f", "null", "-"
     ]
     vol_result = subprocess.run(vol_cmd, capture_output=True, text=True)

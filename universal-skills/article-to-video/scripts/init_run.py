@@ -7,13 +7,15 @@
     python init_run.py "文章标题" --slug my-custom-slug
 
 输出:
+    <run_dir>/brief.json
     <run_dir>/meta.json
-    <run_dir>/slides/
-    <run_dir>/preview/
+    <run_dir>/deck/
+    <run_dir>/images/
     <run_dir>/audio/
     <run_dir>/build/
     <run_dir>/output/
     <run_dir>/canvas/
+    <run_dir>/assets/bgm/
 """
 
 import argparse
@@ -40,16 +42,23 @@ def build_run_dir(root: str, title: str, custom_slug: str | None) -> str:
 def ensure_dirs(run_dir: str) -> dict:
     dirs = {
         "run_dir": run_dir,
-        "slides": os.path.join(run_dir, "slides"),
-        "preview": os.path.join(run_dir, "preview"),
+        "deck": os.path.join(run_dir, "deck"),
+        "images": os.path.join(run_dir, "images"),
         "audio": os.path.join(run_dir, "audio"),
         "build": os.path.join(run_dir, "build"),
         "output": os.path.join(run_dir, "output"),
         "canvas": os.path.join(run_dir, "canvas"),
+        "assets": os.path.join(run_dir, "assets"),
+        "assets_bgm": os.path.join(run_dir, "assets", "bgm"),
     }
     for path in dirs.values():
         os.makedirs(path, exist_ok=True)
     return dirs
+
+
+def write_json(path: str, payload: dict) -> None:
+    with open(path, "w", encoding="utf-8") as file:
+        json.dump(payload, file, ensure_ascii=False, indent=2)
 
 
 def main() -> None:
@@ -80,12 +89,65 @@ def main() -> None:
     }
 
     meta_path = os.path.join(run_dir, "meta.json")
-    with open(meta_path, "w", encoding="utf-8") as file:
-        json.dump(meta, file, ensure_ascii=False, indent=2)
+    write_json(meta_path, meta)
+
+    brief_path = os.path.join(run_dir, "brief.json")
+    outline_path = os.path.join(run_dir, "outline.json")
+    slide_spec_path = os.path.join(run_dir, "slide-spec.json")
+
+    write_json(
+        brief_path,
+        {
+            "title": args.title,
+            "article_understanding": {
+                "core_message": "",
+                "audience": "",
+                "tone": "",
+                "video_type": "",
+            },
+            "production_plan": {
+                "recommended_duration": "",
+                "chapter_count": 0,
+                "visual_direction": "",
+                "tts_profile": "",
+                "bgm_strategy": "",
+            },
+        },
+    )
+    write_json(
+        outline_path,
+        {
+            "title": args.title,
+            "theme": {},
+            "tts": {},
+            "bgm": {},
+            "slides": [],
+        },
+    )
+    write_json(
+        slide_spec_path,
+        {
+            "schema_version": "1.0",
+            "kind": "slide-spec",
+            "title": args.title,
+            "theme": {},
+            "tts": {},
+            "bgm": {},
+            "render": {
+                "width": 1920,
+                "height": 1080,
+                "footer_safe_height": 156,
+            },
+            "pages": [],
+        },
+    )
 
     print(f"Run initialized: {run_dir}")
     print(f"Meta: {meta_path}")
-    for name in ("slides", "preview", "audio", "build", "output", "canvas"):
+    print(f"Brief: {brief_path}")
+    print(f"Outline: {outline_path}")
+    print(f"SlideSpec: {slide_spec_path}")
+    for name in ("deck", "images", "audio", "build", "output", "canvas", "assets", "assets_bgm"):
         print(f"{name}: {dirs[name]}")
 
 

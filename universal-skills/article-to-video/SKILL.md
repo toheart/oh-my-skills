@@ -1,350 +1,333 @@
 ---
 name: article-to-video
 description: >-
-  将文章自动转换为带配音和字幕的 PPT 讲解视频。支持 Markdown/纯文本输入，
-  生成 1920x1080 横屏 MP4 视频，适合发布到抖音、视频号、B 站横屏课程等场景。
-  Use when 用户提到"文章转视频""生成讲解视频""PPT 视频""article to video"
-  或提供文章要求制作视频时触发。
+  将文章自动转换为带配音和字幕的原生 PPT 讲解视频。支持 Markdown/纯文本输入，
+  以 brief.json / outline.json / slide-spec.json 为真相源头，通过 pptx Skill
+  生成 PPTX、导出图片，再合成为 1920x1080 横屏 MP4。Use when 用户提到
+  "文章转视频""生成讲解视频""PPT 视频""article to video" 或提供文章要求制作视频时触发。
 ---
 
 # Article to Video
 
-> **依赖**: Node.js, Python 3.x, edge-tts, ffmpeg, Playwright, pptx Skill, frontend-design Skill  
-> **可选增强**: canvas-design Skill（封面 / 章节页氛围图 / 视觉母版）
+> **前置依赖**: `pptx` Skill, `canvas-design` Skill, Node.js, Python 3.x, `edge-tts`, `ffmpeg`  
+> **导图依赖**: Windows + Microsoft PowerPoint 优先；或 LibreOffice + `pdftoppm` 作为 fallback  
+> **设计约束**: `canvas-design` 不是可选增强，而是必用设计技能；封面纹理、章节视觉、静态配图都必须先经由 `canvas-design` 产出
 
-其中 `frontend-design` 指的是 Codex 已安装的同名技能，推荐来源为：
+这个 skill 的主链路已经改成：
 
-- 上游仓库：`https://github.com/anthropics/skills/tree/main/skills/frontend-design`
-- 安装位置：`$CODEX_HOME/skills/frontend-design/`
-
-如果当前环境尚未安装，可执行：
-
-```bash
-python3 "$CODEX_HOME/skills/.system/skill-installer/scripts/install-skill-from-github.py" \
-  --url https://github.com/anthropics/skills/tree/main/skills/frontend-design
+```text
+article -> brief.json -> outline.json -> slide-spec.json
+-> pptx Skill / PptxGenJS -> deck.pptx
+-> 导出 slide-xxx.jpg
+-> Edge-TTS 音频 / SRT
+-> ffmpeg 合成视频
 ```
 
-其中 `canvas-design` 指的是 Codex 已安装的同名技能，推荐来源为：
+## 硬规则
 
-- 安装位置：`$CODEX_HOME/skills/canvas-design/`
+1. **`slide-spec.json` 是视觉真相源头**
+   不是 HTML，不是截图，不是浏览器预览。
 
-如果当前环境尚未安装，可从当前运行环境支持的技能来源安装同名 `canvas-design`，并确保最终落在 `$CODEX_HOME/skills/canvas-design/`。
+2. **PPTX 是主视觉产物**
+   视频画面来自 PPT 导出的图片，不来自网页截图。
 
-## 前置检查
+3. **先理解文章，再说明如何制作**
+   先出 `brief.json`，让用户确认你理解的是对的，再拆页。
+
+4. **按章快改要依赖结构化源文件**
+   快速修改某一章，优先编辑 `outline.json` 或 `slide-spec.json`，然后局部重导图片、局部重跑音频与视频。
+
+5. **BGM 不自动配置**
+   默认不自动选、下载、生成或混入 BGM。如需音乐，只在最后基于文章给出推荐，由用户自己决定是否采用。
+
+## 先加载的上游 skill
+
+这个 skill 依赖上游 `pptx` skill 和 `canvas-design` skill。
+
+- 创建新 deck 时，走 `pptx` skill 的 **PptxGenJS** 路线
+- 封面、章节页、静态纹理、概念配图必须先走 `canvas-design`
+- 不要把 HTML 当成中间主格式
+- 做视觉 QA 时，把 PPTX 导出成图片检查，而不是只读代码
+
+如果当前环境没有 `pptxgenjs`，先安装：
 
 ```bash
-pip install edge-tts
-ffmpeg -version
-npx playwright install chromium
+npm install -g pptxgenjs
 ```
-
-确保 `edge-tts`、`ffmpeg` 和 Playwright Chromium 可用。若需安装 ffmpeg，参考 [references/video-specs.md](references/video-specs.md)。
-
-pptx Skill 依赖 `pptxgenjs`（需全局安装）和 `html2pptx` 脚本。
-
-## 核心原则
-
-1. **每次运行都创建独立目录**  
-   所有输出物统一落到仓库根目录的 `workspace/article-to-video/<slug>-<timestamp>/`，避免覆盖历史产物。
-
-2. **音色自动匹配，但配置可复现**  
-   默认使用 `--voice auto`，由脚本根据文章内容自动匹配 voice / rate / pause，并把最终配置写入 `audio/manifest.json`。
-
-3. **幻灯片必须预留底部安全区**  
-   页面设计时要明确给视频字幕和视觉呼吸感留空间，不能把底部当作“能塞内容就塞内容”的区域；导出的 JPG 里必须能肉眼看到 footer 留白。
-
-4. **默认保持静态画面，不开启镜头运动**  
-   不要默认让 PPT 在视频层漂移；如确实需要动态，再显式传 `render_video.py --motion auto` 或具体 drift 模式。也不要先依赖复杂 CSS/JS 动画。
-
-5. **frontend-design 负责布局与版式，canvas-design 负责高密度静态视觉资产**  
-   `frontend-design` 用于页面结构、排版、界面风格；  
-   `canvas-design` 适合封面图、章节页纹理、概念视觉海报等静态 PNG，再嵌入 HTML。
 
 ## 目录规范
 
-初始化一次 run：
+先初始化一次独立 run：
 
 ```bash
 python universal-skills/article-to-video/scripts/init_run.py "文章标题"
 ```
 
-默认会创建：
+默认输出到：
 
 ```text
 workspace/article-to-video/<slug>-<timestamp>/
-├── meta.json
+├── brief.json
 ├── outline.json
-├── slides/
-├── preview/
+├── slide-spec.json
+├── meta.json
+├── deck/
+│   └── deck.pptx
+├── images/
+│   └── slide-001.jpg
 ├── audio/
+│   ├── page_001.wav
+│   ├── page_001.srt
+│   └── manifest.json
 ├── build/
 ├── output/
-└── canvas/
+├── canvas/
+└── assets/
+    └── bgm/
 ```
 
-- `slides/` — 幻灯片 HTML
-- `preview/` — Playwright 导出的 `slide-001.jpg` 等预览图
-- `audio/` — 每页配音、字幕、manifest
-- `build/` — 中间产物和 `_clips`
-- `output/` — 最终视频
-- `canvas/` — canvas-design 导出的静态 PNG / PDF 素材
+其中：
 
-## 工作流
+- `canvas/` 不是占位目录，而是必须落地的设计资产目录
+- 封面纹理、章节视觉、概念配图都要先由 `canvas-design` 生成到 `canvas/`
+- `slide-spec.json` 和最终 PPT 页面要引用这些已生成的静态资产，而不是临时跳过
 
-### Step 0: 初始化本次运行目录
+## 真相源头
 
-```bash
-python universal-skills/article-to-video/scripts/init_run.py "文章标题"
-```
+### 1. `brief.json`
 
-命令会输出本次 `RUN_DIR`。后续所有文件都写到这个目录，不再写死到单一 `workspace/` 根目录。
+先明确你理解了什么，以及你准备怎么做。
 
-### Step 1: 解析文章 → 生成大纲与讲稿
-
-读取用户提供的文章文件或文本，提取结构化大纲并为每页生成口语化讲稿。
-
-**推荐输出格式**（JSON）:
+推荐结构：
 
 ```json
 {
   "title": "文章标题",
-  "theme": {
+  "article_understanding": {
+    "core_message": "文章的真正主旨",
+    "audience": "目标受众",
     "tone": "technical-editorial",
-    "keywords": ["AI", "工程", "课程"]
+    "video_type": "explainer"
   },
-  "tts": {
-    "profile": "technical"
-  },
-  "slides": [
-    {
-      "page": 1,
-      "heading": "页面标题",
-      "bullets": ["要点1", "要点2"],
-      "script": "这一页的口语化讲稿，控制在100-200字..."
-    }
-  ]
+  "production_plan": {
+    "recommended_duration": "6-8 min",
+    "chapter_count": 4,
+    "visual_direction": "editorial paper",
+    "tts_profile": "technical",
+    "bgm_strategy": "recommend only, user applies manually"
+  }
 }
 ```
 
-**要求**:
+在继续之前，先把这份理解展示给用户确认。
 
-- 总页数控制在 8-15 页（含封面和结尾）
-- 第 1 页为封面（标题 + 副标题），讲稿为简短开场白
-- 最后 1 页为总结 / 感谢页，讲稿为简短收尾
-- 每页讲稿 100-200 字，口语化、自然流畅，避免书面语
-- bullets 控制在 3-5 条，每条不超过 15 字
-- `tts.profile` 可选，常用值：`technical` / `business` / `story` / `energetic`
+### 2. `outline.json`
 
-**讲稿 TTS 优化技巧**（避免“念稿感”）:
+确认 brief 后，再写逐页结构与讲稿。
 
-- 用句号断句，让 TTS 在句号处自然停顿
-- 在需要强调的地方前加逗号或省略号 `……` 制造“思考感”
-- 避免一个讲稿段落超过 3 句不断句，否则 TTS 会一口气念完
-- 适当在并列项之间用句号切分，例如“韩立负责调度。南宫婉管运营。”
+要求：
 
-将 JSON 保存为 `RUN_DIR/outline.json`。
+- 总页数通常 `8-15` 页
+- 第 1 页为封面
+- 最后 1 页为总结/收尾
+- 每页都要有 `slide_id`、`chapter_id`、`heading`、`script`
+- 每页讲稿保持口语化，适合 TTS 朗读
 
-**⏸ 确认点 1**: 将大纲和讲稿展示给用户，等待确认或修改后再继续。
+### 3. `slide-spec.json`
 
-### Step 2: 设计 PPT 幻灯片
+这是渲染层的唯一真相源头。
 
-基于 `outline.json`，**按照 frontend-design Skill 的设计理念** 为每页设计独立 HTML 文件，保存到 `RUN_DIR/slides/`。
-这里引用的是 Codex 环境中的 `frontend-design` 同名技能，不要写死任何 Windows 或本机绝对路径。
+它负责定义：
 
-如果封面、章节页、概念过渡页需要更强的视觉氛围，可以额外调用 **canvas-design Skill** 输出 PNG 到 `RUN_DIR/canvas/`，再在 HTML 中引用这些静态素材。
+- 页面模板 `template`
+- 标题、摘要、要点、卡片内容
+- footer 安全区
+- 主题色、字体、导出尺寸
 
-**frontend-design 与 canvas-design 的分工**:
-
-- `frontend-design`: 页面骨架、信息层级、排版系统、栅格、组件式布局
-- `canvas-design`: 单张高完成度静态视觉、纹理背景、概念母版、章节页海报
-
-**设计流程**:
-
-1. 先阅读文章内容，理解主题和调性
-2. 确定视觉方向：
-   - 技术 / 工程文 → 极简、编辑感、工业理性
-   - 故事 / 文化文 → 杂志感、叙事感、层次留白
-   - 商业 / 汇报文 → 克制、稳健、结构清晰
-3. 决定哪些页只用 HTML 完成，哪些页需要 canvas 静态资产增强
-4. 所有页面遵循统一的安全区系统
-
-**HTML 技术约束**（html2pptx 限制）:
-
-- body 尺寸：`width: 720pt; height: 405pt`
-- 所有文字必须包裹在语义标签中：`<p>`, `<h1>`-`<h6>`, `<ul>`, `<ol>`, `<li>`
-- 不使用 CSS gradient（html2pptx 不支持）
-- 文本标签（h1-h6, p, li）上不能加 `border`、`box-shadow`，只有 `<div>` 支持
-- body 使用 `display: flex; flex-direction: column`
-
-**底部安全区硬规则**:
-
-- 页面可视内容区底部必须预留至少 `56pt`
-- 导出的 JPG 中，底部要保留清晰可见的空白 footer 区，而不是只在代码里声明一个名义安全区
-- 整体纵向重心要保持平衡，避免明显“上面重、下面轻”
-- 推荐用明确的 `content-area + footer-safe` 两段式结构，而不是仅靠 `padding-bottom`
-- 避免在高内容页使用 `justify-content: space-between` 把上下块硬撑满全高
-- 用户最终观看的是“视频 + 字幕”，而不是裸 PPT 截图，所以底部必须给字幕和呼吸感让路
-
-**推荐骨架**:
-
-```html
-<body>
-  <main class="page-shell">
-    <section class="content-area">
-      <!-- 主内容 -->
-    </section>
-    <footer class="footer-safe">
-      <!-- 页码 / 标签 / 空白安全区 -->
-    </footer>
-  </main>
-</body>
-```
-
-### Step 3: 生成 PPT 并导出预览图片
-
-使用 pptx Skill 的 `html2pptx` 生成 PPTX：
+`outline.json` 变更后，用脚本生成或归一化：
 
 ```bash
-cd "$RUN_DIR"
-NODE_PATH="<全局 node_modules 路径>" node build_pptx.js
+python universal-skills/article-to-video/scripts/build_slide_spec.py outline.json slide-spec.json
 ```
 
-使用 Playwright 导出 JPG 预览图到 `preview/`：
+如果用户要精修某几页，也可以直接手改 `slide-spec.json`。
+
+## 默认工作流
+
+### Step 0: 初始化 run
 
 ```bash
-NODE_PATH="<全局 node_modules 路径>" node export_slides.js
+python universal-skills/article-to-video/scripts/init_run.py "文章标题"
 ```
 
-建议导出脚本遵循：
+### Step 1: 先理解文章，再说明你打算怎么做
 
-- viewport 设为 `960×540`（对应 `720pt×405pt @96dpi`）
-- 输出命名为 `preview/slide-001.jpg`
-- ffmpeg 合成时再 scale 到 `1920×1080`
+输出 `brief.json`，至少说明：
 
-**⏸ 确认点 2**: 将导出的幻灯片图片展示给用户确认设计。用户满意后才继续。  
-如果用户不满意，修改对应的 `slideXX.html` 后重新执行 build_pptx.js 和 export_slides.js。
+- 这篇文章的核心判断是什么
+- 目标受众是谁
+- 更像课程讲解、观点解读还是故事复盘
+- 打算拆成几章，每章承担什么功能
+- 视觉风格、配音风格、是否需要给出 BGM 推荐
 
-### Step 4: 生成配音与字幕
+### Step 2: 生成 `outline.json`
+
+把文章拆成页，并为每页生成讲稿。
+
+### Step 3: 先用 `canvas-design` 生成静态视觉资产
+
+在构建 `slide-spec.json` 之前，必须先确定并产出本次视频需要的静态设计资产，至少包括：
+
+- 封面背景或封面纹理
+- 章节页视觉母版
+- 概念型页面需要的静态配图或纹理
+
+这些资产统一输出到 `canvas/`，再进入后续排版。
+
+### Step 4: 构建 `slide-spec.json`
+
+```bash
+python universal-skills/article-to-video/scripts/build_slide_spec.py outline.json slide-spec.json
+```
+
+构建 `slide-spec.json` 时，要把 `canvas/` 中已经生成的静态资产视为正式输入，而不是可有可无的装饰层。
+
+### Step 5: 渲染原生 PPTX
+
+```bash
+python universal-skills/article-to-video/scripts/render_pptx.py slide-spec.json deck/deck.pptx
+```
+
+这里必须遵循 `pptx` skill 的 from-scratch 路线，也就是 PptxGenJS。
+
+### Step 6: 从 PPTX 导出图片
+
+```bash
+python universal-skills/article-to-video/scripts/export_pptx_images.py \
+  deck/deck.pptx images --source-json slide-spec.json
+```
+
+局部导出某几页：
+
+```bash
+python universal-skills/article-to-video/scripts/export_pptx_images.py \
+  deck/deck.pptx images --pages 3,5-7
+```
+
+按章导出：
+
+```bash
+python universal-skills/article-to-video/scripts/export_pptx_images.py \
+  deck/deck.pptx images --source-json slide-spec.json --chapter methods
+```
+
+### Step 7: 生成音频和字幕
 
 ```bash
 python universal-skills/article-to-video/scripts/generate_audio.py \
-  "$RUN_DIR/outline.json" \
-  "$RUN_DIR/audio" \
-  --voice auto
+  slide-spec.json audio --voice auto
 ```
 
-参数说明：
+局部重跑：
 
-- `--voice auto` — 根据文章内容自动匹配 voice / rate / pause
-- `--voice zh-CN-YunjianNeural` — 手动指定 voice
-- `--rate` / `--volume` / `--pitch` / `--pause` — 手动覆盖 auto profile
+```bash
+python universal-skills/article-to-video/scripts/generate_audio.py \
+  slide-spec.json audio --chapter methods
+```
 
-输出：
-
-- `RUN_DIR/audio/page_001.wav` ... `page_N.wav` — 每页配音（WAV 无损格式）
-- `RUN_DIR/audio/page_001.srt` ... `page_N.srt` — 每页字幕
-- `RUN_DIR/audio/manifest.json` — 每页音频时长信息 + 最终 TTS 配置
-
-**音频选择建议**:
-
-- 技术讲解 / 工程课程：优先稳重男声，略慢一点
-- 商业表达 / 汇报：优先克制、清晰、节奏均衡
-- 叙事 / 文化内容：优先更温和、更有停顿感的 voice
-- 轻松内容：允许稍快、更轻盈的 voice
-
-脚本内部会把最终选择写进 manifest，保证本次成片可复现。
-
-### Step 5: 合成视频
+### Step 8: 合成视频
 
 ```bash
 python universal-skills/article-to-video/scripts/render_video.py \
-  "$RUN_DIR/audio/manifest.json" \
-  "$RUN_DIR" \
-  --subtitle-margin-v 42
+  audio/manifest.json . --output output/final.mp4
 ```
 
-脚本自动完成：
+局部重做时：
 
-1. 在 `preview/` 或根目录中查找 `slide-001.jpg` 等图片
-2. 为每页生成独立视频片段（图片 + 音频 + 烧录字幕）
-3. 默认保持静态画面，仅使用轻微入退场淡化，避免画面额外漂移
-4. 使用 `-t` 精确控制片段时长（匹配 manifest 中的 duration），避免音画偏移
-5. 默认无转场拼接，避免字幕重叠
-6. 输出到 `RUN_DIR/output/final.mp4`
+```bash
+python universal-skills/article-to-video/scripts/render_video.py \
+  audio/manifest.json . --chapter methods --output output/final.mp4
+```
 
-**如果需要动态，优先走视频层而不是复杂 HTML 动画**:
+`render_video.py` 会复用 `build/_clips/` 中未改动页面的缓存片段。
 
-- 它稳定，不依赖复杂 HTML 动画
-- 不会破坏 html2pptx 的兼容性
-- 只有在页面确实需要时再开启，复杂度更可控
-
-### Step 6: 视频质量自检
+### Step 9: 做结果校验
 
 ```bash
 python universal-skills/article-to-video/scripts/verify_video.py \
-  "$RUN_DIR/output/final.mp4" \
-  "$RUN_DIR/audio/manifest.json"
+  output/final.mp4 audio/manifest.json
 ```
 
-自动检测：
+视觉层要直接检查 `images/slide-xxx.jpg`。
 
-1. **音画同步**: 视频轨 vs 音频轨时长偏差（阈值 0.5s）
-2. **音频质量**: 异常静音段检测、整体音量检测
-3. **字幕同步**: SRT 结束时间 vs 音频时长偏差
-4. **时长一致性**: manifest 记录 vs 实际音频时长
-5. **规格校验**: 分辨率、帧率、编码格式
+## 如何快速修改某一章
 
-如果检测到 ERROR 级别问题，需要排查修复后重新生成。  
-如果只有 WARN，可以选择接受或修复。
+推荐顺序：
 
-**⏸ 确认点 3**: 自检通过后，告知用户视频已生成，路径为 `RUN_DIR/output/final.mp4`。
+1. 改内容逻辑：编辑 `outline.json`
+2. 改版式或页面结构：编辑 `slide-spec.json`
+3. 重建 deck：
 
-## 踩坑记录
+```bash
+python universal-skills/article-to-video/scripts/render_pptx.py slide-spec.json deck/deck.pptx
+```
 
-### MP3 多次编解码导致电流声
+4. 只重导这一章的图片：
 
-**现象**: 音频中有滋啦的电流声、卡顿。  
-**根因**: Edge-TTS 输出 MP3 → 后处理重新编码 MP3 → render_video 再解码为 AAC，三次编解码在 24kHz 低采样率下引入明显噪声。  
-**解法**: 后处理输出 WAV（无损），只在最终合成时一次编码为 AAC。
+```bash
+python universal-skills/article-to-video/scripts/export_pptx_images.py \
+  deck/deck.pptx images --source-json slide-spec.json --chapter methods
+```
 
-### `-shortest` 导致音画不同步
+5. 只重跑这一章的音频：
 
-**现象**: 视频轨比音频轨长 0.6-2 秒。  
-**根因**: `-loop 1` + `-shortest` 在 ffmpeg 中因 GOP 对齐和编码器缓冲不精确。  
-**解法**: 用 `-t <精确时长>` 替代 `-shortest`，时长取自 manifest 中的 duration（ffprobe 测量值）。
+```bash
+python universal-skills/article-to-video/scripts/generate_audio.py \
+  slide-spec.json audio --chapter methods
+```
 
-### 字幕与语音不同步
+6. 只重拼这一章对应片段：
 
-**根因**: SRT 时间戳来自原始 TTS 流，后处理（尤其是 MP3 encoder delay 累积）会引入偏移。  
-**解法**: WAV 中间格式消除了 MP3 encoder delay，SRT 时间戳直接对应原始 TTS 音频时间线。
+```bash
+python universal-skills/article-to-video/scripts/render_video.py \
+  audio/manifest.json . --chapter methods --output output/final.mp4
+```
 
-### xfade 转场导致字幕重叠
+## BGM 策略
 
-**根因**: xfade 在 fade 期间混合相邻片段帧，已烧录的字幕会同时显示两页。  
-**解法**: 默认不转场（`--transition 0`），通过尾部静音制造呼吸感；只有在确实需要时再显式开启 `--motion auto`。
+默认不在 skill 内自动配置 BGM。
 
-### 幻灯片底部没有呼吸感
+如果用户没有提供音乐文件：
 
-**根因**: 页面只考虑了 PPT 截图本身，没有把视频字幕区当成硬安全区。  
-**解法**: 设计时明确保留底部 `56pt+` 安全区，渲染时提高 `--subtitle-margin-v`，不要让内容顶满底部。
+- 不要自动下载或生成 BGM
+- 不要在默认视频里写入全局配乐
+- 在最终交付说明里，根据文章内容提供 3 到 5 条在线 BGM 推荐
+- 推荐内容应包含：曲风方向、来源网站、搜索关键词或具体曲目名
 
-### html2pptx 限制
+如果用户自己提供了 BGM 文件并明确要求混入，才使用渲染脚本中的 BGM 参数。
 
-- 文本标签不支持 `border`、`box-shadow`（只有 div 支持）
-- 不支持 CSS gradient
-- 会校验溢出（含 0.5" 底部 margin）
+## 模板建议
 
-## 参考文件
+第一版控制在少量稳定模板：
 
-- [references/video-specs.md](references/video-specs.md) — 视频规格、TTS 语音、FFmpeg 安装指南
+- `cover`
+- `headline-bullets`
+- `three-up`
+- `four-up`
+- `comparison`
+- `closing`
 
-## 脚本一览
+不要为了“看起来灵活”把模板做得过多；可维护性比花哨更重要。
 
-| 脚本 | 用途 |
-|------|------|
-| `scripts/init_run.py` | 初始化独立运行目录，避免覆盖历史产物 |
-| `scripts/generate_audio.py` | Edge-TTS 配音 + SRT 字幕，支持 `--voice auto` |
-| `scripts/render_video.py` | FFmpeg 合成图片 + 音频 + 字幕为 MP4，支持轻动态与更安全的字幕边距 |
-| `scripts/verify_video.py` | 视频质量自检（音画/字幕同步、音频质量） |
-| `RUN_DIR/build_pptx.js` | html2pptx 将 HTML 转为 PPTX |
-| `RUN_DIR/export_slides.js` | Playwright 截图导出 JPG 预览图 |
+这些模板都默认建立在 `canvas-design` 已经产出静态底图、纹理或概念配图的前提上，而不是先做一版纯文字 PPT 再考虑补视觉。
+
+## QA 原则
+
+1. 不要只看 JSON，要看导出的 JPG
+2. 优先检查 footer 安全区、标题换行、卡片溢出、左右对齐
+3. 改某一章后，至少重新检查这一章所有导出图
+4. 只在图片确认没问题后，再继续音频与视频合成
+
+更详细的视频规格、BGM 建议、局部重做建议见：
+
+- [references/video-specs.md](references/video-specs.md)
