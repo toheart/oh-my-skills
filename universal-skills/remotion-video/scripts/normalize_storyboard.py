@@ -82,6 +82,12 @@ def ensure_list(value: Any) -> list[Any]:
     return [value]
 
 
+def clean_text(value: Any) -> str:
+    if value is None:
+        return ""
+    return str(value).strip()
+
+
 def coerce_duration(value: Any, fallback: float) -> float:
     try:
         parsed = float(value)
@@ -145,6 +151,7 @@ def normalize_remotion_shape(data: dict[str, Any]) -> dict[str, Any]:
         data.get("global_style", {}) if isinstance(data.get("global_style"), dict) else {}
     )
     audio = data.get("audio", {}) if isinstance(data.get("audio"), dict) else {}
+    source = clean_optional_dict(data.get("source")) or {}
     scenes = data.get("scenes", []) if isinstance(data.get("scenes"), list) else []
 
     normalized_scenes = []
@@ -159,37 +166,41 @@ def normalize_remotion_shape(data: dict[str, Any]) -> dict[str, Any]:
         normalized_scenes.append(normalize_scene(scene, index, start_sec, duration))
         cursor = start_sec + duration
 
+    target_duration = coerce_duration(meta.get("target_duration_sec"), 0.0)
     requested_duration = coerce_duration(meta.get("duration_sec"), max(cursor, 1.0))
-    total_duration = round(max(requested_duration, cursor, 1.0), 2)
+    planned_duration = target_duration if target_duration > 0 else requested_duration
+    total_duration = round(max(planned_duration, cursor, 1.0), 2)
 
     normalized: dict[str, Any] = {
         "meta": {
-            "title": meta.get("title", "Untitled Video"),
-            "aspect_ratio": meta.get("aspect_ratio", DEFAULT_ASPECT_RATIO),
+            "title": clean_text(meta.get("title")) or "Untitled Video",
+            "publishing_target": clean_text(meta.get("publishing_target")),
+            "aspect_ratio": clean_text(meta.get("aspect_ratio")),
             "fps": int(meta.get("fps", DEFAULT_FPS)),
+            "target_duration_sec": target_duration,
             "duration_sec": total_duration,
-            "theme": meta.get("theme", DEFAULT_THEME),
+            "theme": clean_text(meta.get("theme")) or DEFAULT_THEME,
         },
         "global_style": {
-            "visual_language": global_style.get("visual_language", DEFAULT_VISUAL_LANGUAGE),
-            "color_mood": global_style.get("color_mood", DEFAULT_COLOR_MOOD),
-            "typography": global_style.get("typography", DEFAULT_TYPOGRAPHY),
-            "pace": global_style.get("pace", DEFAULT_PACE),
+            "visual_language": clean_text(global_style.get("visual_language")) or DEFAULT_VISUAL_LANGUAGE,
+            "color_mood": clean_text(global_style.get("color_mood")) or DEFAULT_COLOR_MOOD,
+            "typography": clean_text(global_style.get("typography")) or DEFAULT_TYPOGRAPHY,
+            "pace": clean_text(global_style.get("pace")) or DEFAULT_PACE,
         },
         "audio": normalize_audio(audio),
         "scenes": normalized_scenes,
+        "source": {
+            "core_thesis": clean_text(source.get("core_thesis")),
+            "audience": clean_text(source.get("audience")),
+            "tone": clean_text(source.get("tone")),
+            "content_mode": clean_text(source.get("content_mode")),
+            "success_metric": clean_text(source.get("success_metric")),
+        },
     }
 
-    source = clean_optional_dict(data.get("source"))
-    if source:
-        normalized["source"] = {
-            "core_thesis": source.get("core_thesis", ""),
-            "audience": source.get("audience", ""),
-            "tone": source.get("tone", ""),
-        }
-        source_tts = clean_optional_dict(source.get("tts"))
-        if source_tts:
-            normalized["source"]["tts"] = source_tts
+    source_tts = clean_optional_dict(source.get("tts"))
+    if source_tts:
+        normalized["source"]["tts"] = source_tts
 
     return normalized
 
@@ -205,22 +216,24 @@ def normalize_article_storyboard_shape(data: dict[str, Any]) -> dict[str, Any]:
         normalized_scenes.append(normalize_scene(scene, index, cursor, duration))
         cursor += duration
 
-    requested_duration = coerce_duration(data.get("target_duration_sec"), max(cursor, 1.0))
-    total_duration = round(max(requested_duration, cursor, 1.0), 2)
+    target_duration = coerce_duration(data.get("target_duration_sec"), 0.0)
+    total_duration = round(max(target_duration, cursor, 1.0), 2)
 
     normalized: dict[str, Any] = {
         "meta": {
-            "title": data.get("title", "Untitled Video"),
-            "aspect_ratio": data.get("aspect_ratio", DEFAULT_ASPECT_RATIO),
+            "title": clean_text(data.get("title")) or "Untitled Video",
+            "publishing_target": clean_text(data.get("publishing_target")),
+            "aspect_ratio": clean_text(data.get("aspect_ratio")),
             "fps": int(data.get("fps", DEFAULT_FPS)),
+            "target_duration_sec": target_duration,
             "duration_sec": total_duration,
-            "theme": data.get("theme", DEFAULT_THEME),
+            "theme": clean_text(data.get("theme")) or DEFAULT_THEME,
         },
         "global_style": {
-            "visual_language": data.get("visual_language", DEFAULT_VISUAL_LANGUAGE),
-            "color_mood": data.get("color_mood", DEFAULT_COLOR_MOOD),
-            "typography": data.get("typography", DEFAULT_TYPOGRAPHY),
-            "pace": data.get("pace", data.get("tone", DEFAULT_PACE)),
+            "visual_language": clean_text(data.get("visual_language")) or DEFAULT_VISUAL_LANGUAGE,
+            "color_mood": clean_text(data.get("color_mood")) or DEFAULT_COLOR_MOOD,
+            "typography": clean_text(data.get("typography")) or DEFAULT_TYPOGRAPHY,
+            "pace": clean_text(data.get("pace")) or clean_text(data.get("tone")) or DEFAULT_PACE,
         },
         "audio": normalize_audio(
             {
@@ -233,9 +246,11 @@ def normalize_article_storyboard_shape(data: dict[str, Any]) -> dict[str, Any]:
         ),
         "scenes": normalized_scenes,
         "source": {
-            "core_thesis": data.get("core_thesis", ""),
-            "audience": data.get("audience", ""),
-            "tone": data.get("tone", ""),
+            "core_thesis": clean_text(data.get("core_thesis")),
+            "audience": clean_text(data.get("audience")),
+            "tone": clean_text(data.get("tone")),
+            "content_mode": clean_text(data.get("content_mode")),
+            "success_metric": clean_text(data.get("success_metric")),
         },
     }
 
@@ -332,6 +347,23 @@ def validate_storyboard(storyboard: dict[str, Any], input_path: str) -> tuple[li
                     )
 
     meta = storyboard.get("meta", {}) if isinstance(storyboard.get("meta"), dict) else {}
+    publishing_target = clean_text(meta.get("publishing_target"))
+    if not publishing_target:
+        errors.append("meta.publishing_target is required")
+
+    aspect_ratio = clean_text(meta.get("aspect_ratio"))
+    if not aspect_ratio:
+        errors.append("meta.aspect_ratio is required")
+
+    try:
+        target_duration_sec = float(meta.get("target_duration_sec", 0) or 0)
+    except (TypeError, ValueError):
+        errors.append("meta.target_duration_sec must be numeric")
+        target_duration_sec = 0.0
+    else:
+        if target_duration_sec <= 0:
+            errors.append("meta.target_duration_sec must be positive")
+
     try:
         duration_sec = float(meta.get("duration_sec", 0) or 0)
     except (TypeError, ValueError):
@@ -353,6 +385,14 @@ def validate_storyboard(storyboard: dict[str, Any], input_path: str) -> tuple[li
     else:
         if parsed_fps <= 0:
             errors.append("meta.fps must be positive")
+
+    source = storyboard.get("source", {}) if isinstance(storyboard.get("source"), dict) else {}
+    if not clean_text(source.get("audience")):
+        errors.append("source.audience is required")
+    if not clean_text(source.get("content_mode")):
+        errors.append("source.content_mode is required")
+    if not clean_text(source.get("success_metric")):
+        errors.append("source.success_metric is required")
 
     audio = storyboard.get("audio", {}) if isinstance(storyboard.get("audio"), dict) else {}
     subtitle_mode = str(audio.get("subtitle_mode", DEFAULT_SUBTITLE_MODE) or DEFAULT_SUBTITLE_MODE)

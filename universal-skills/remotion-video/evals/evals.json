@@ -3,8 +3,8 @@
   "evals": [
     {
       "id": 1,
-      "prompt": "我已经有一份 storyboard.json，里面有 7 个 scene、每段 narration 和 on_screen_text。请先做 preflight normalization，保留 captions 和 subtitle_path，再给我一个可直接走 Remotion SSR 的 props 文件和渲染命令。",
-      "expected_output": "The run should use the bundled normalization path, preserve subtitle-related fields, and produce a concrete SSR render command rather than vague advice.",
+      "prompt": "我已经有一份 storyboard.json，里面有 7 个 scene、每段 narration 和 on_screen_text，而且已经写了 publishing_target、aspect_ratio、content_mode、target_duration_sec、audience、success_metric。请先做 preflight normalization，保留这些规划字段以及 captions 和 subtitle_path，再给我一个可直接走 Remotion SSR 的 props 文件和渲染命令。",
+      "expected_output": "The run should use the bundled normalization path, preserve planning metadata and subtitle-related fields, and produce a concrete SSR render command rather than vague advice.",
       "files": []
     },
     {
@@ -23,6 +23,12 @@
       "id": 4,
       "prompt": "我想批量渲染 20 条同模板视频，每条只有标题、旁白、字幕和几张图片不一样。请按同一个 composition + 多份 props 的思路设计最小复用方案，并加上渲染后如何校验分辨率、时长、音频对齐和字幕时间。",
       "expected_output": "The run should emphasize one stable composition, one normalized storyboard per output, and explicit use of the verification path for media acceptance.",
+      "files": []
+    },
+    {
+      "id": 5,
+      "prompt": "我已经有分镜和旁白了，直接帮我渲染 Remotion 视频吧。",
+      "expected_output": "The assistant should stop and request the fixed planning input block (`publishing_target`, `aspect_ratio`, `content_mode`, `target_duration_sec`, `audience`, `success_metric`) before proceeding with normalization or rendering.",
       "files": []
     }
   ]

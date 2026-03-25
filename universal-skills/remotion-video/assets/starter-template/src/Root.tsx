@@ -6,8 +6,10 @@ import type {StoryboardProps} from './types';
 const emptyProps: StoryboardProps = {
   meta: {
     title: 'Untitled Video',
+    publishing_target: 'bilibili',
     aspect_ratio: '16:9',
     fps: 30,
+    target_duration_sec: 12,
     duration_sec: 12,
     theme: 'editorial-tech',
   },
@@ -23,6 +25,13 @@ const emptyProps: StoryboardProps = {
     subtitle_path: null,
     subtitle_mode: 'none',
     captions: [],
+  },
+  source: {
+    core_thesis: '',
+    audience: 'general professional audience',
+    tone: 'measured',
+    content_mode: 'explainer',
+    success_metric: 'argument-completeness',
   },
   scenes: [
     {

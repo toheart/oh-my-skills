@@ -80,6 +80,39 @@ If the user already provides one of the following, the input is usually ready fo
 If the user only provides a long article, opinion piece, interview, or rough notes, do not jump directly into Remotion code.
 First normalize the input into a structured storyboard using the schema in `references/storyboard-schema.md`.
 
+## Fixed Planning Input Block
+
+Before continuing, collect this exact planning block and treat every field as required:
+
+- `publishing_target`
+- `aspect_ratio`
+- `content_mode`
+- `target_duration_sec`
+- `audience`
+- `success_metric`
+
+If any field is missing, stop and request this exact block:
+
+```text
+publishing_target:
+aspect_ratio:
+content_mode:
+target_duration_sec:
+audience:
+success_metric:
+```
+
+Do not silently infer or default these values from locale, platform habits, or previous projects.
+If the user asks for recommendations, suggest one baseline preset, then wait for explicit confirmation before continuing.
+
+## Recommended Baseline Presets
+
+Use these only as recommendations, never as silent defaults:
+
+- `bilibili-horizontal-explainer`: `publishing_target=bilibili`, `aspect_ratio=16:9`, `content_mode=explainer`, `target_duration_sec=180`, `audience=general professional audience`, `success_metric=argument-completeness`
+- `douyin-vertical-short-read`: `publishing_target=douyin`, `aspect_ratio=9:16`, `content_mode=short-read`, `target_duration_sec=75`, `audience=general workplace audience`, `success_metric=finish-rate`
+- `youtube-horizontal-deep-dive`: `publishing_target=youtube`, `aspect_ratio=16:9`, `content_mode=deep-dive`, `target_duration_sec=480`, `audience=knowledge-seeking general audience`, `success_metric=watch-time`
+
 ## 2. Normalize Into a Stable Storyboard Contract
 
 Prefer a structured intermediate format over a vague visual prompt.
@@ -110,6 +143,7 @@ Treat failures as upstream input problems to fix before touching Remotion code.
 The normalized storyboard should become the single source of truth for:
 
 - composition metadata
+- publishing target and user-confirmed duration brief
 - scene order and timing
 - asset references
 - subtitle expectations
@@ -266,6 +300,7 @@ Use `references/storyboard-schema.md` as the source of truth.
 At minimum, aim to have:
 
 - project metadata
+- required planning metadata
 - global style guidance
 - audio and subtitle expectations
 - an ordered list of scenes with timing and visual intent
@@ -291,12 +326,13 @@ If the user says the generated video does not feel faithful to the source materi
 
 When the input is a long article or argument and no upstream storyboard skill is available, do this before coding:
 
-1. extract the central thesis
-2. identify the audience and target duration
-3. convert the reading structure into a watching structure
-4. break the piece into scenes
-5. assign each scene a visual role and visual type
-6. add `avoid` constraints for misleading imagery
+1. collect and confirm the required planning metadata block
+2. extract the central thesis
+3. identify the audience and target duration
+4. convert the reading structure into a watching structure
+5. break the piece into scenes
+6. assign each scene a visual role and visual type
+7. add `avoid` constraints for misleading imagery
 
 Do not reduce an article to a single free-form video prompt.
 
