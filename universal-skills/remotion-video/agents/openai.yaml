@@ -1,4 +1,4 @@
 interface:
   display_name: "Remotion Video"
-  short_description: "Render structured videos with Remotion"
-  default_prompt: "Use $remotion-video to render a storyboard into a Remotion video."
+  short_description: "Render structured videos with Remotion and preserved planning metadata"
+  default_prompt: "Use $remotion-video to render a storyboard into a Remotion video after confirming the required platform, aspect ratio, content mode, target duration, audience, and success metric."

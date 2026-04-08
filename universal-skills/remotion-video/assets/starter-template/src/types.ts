@@ -31,11 +31,21 @@ export type StoryScene = {
   motion_intent: string;
 };
 
+export type TTSConfig = {
+  voice?: string;
+  rate?: string;
+  volume?: string;
+  pitch?: string;
+  pause?: number;
+};
+
 export type StoryboardProps = {
   meta: {
     title: string;
+    publishing_target: string;
     aspect_ratio: '16:9' | '9:16' | '1:1' | string;
     fps: number;
+    target_duration_sec: number;
     duration_sec: number;
     theme: string;
   };
@@ -56,6 +66,14 @@ export type StoryboardProps = {
       text: string;
       scene_id?: string;
     }[];
+  };
+  source: {
+    core_thesis: string;
+    audience: string;
+    tone: string;
+    content_mode: string;
+    success_metric: string;
+    tts?: TTSConfig;
   };
   scenes: StoryScene[];
 };

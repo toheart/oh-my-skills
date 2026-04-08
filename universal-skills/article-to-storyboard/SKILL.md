@@ -1,6 +1,6 @@
 ---
 name: article-to-storyboard
-description: Turn articles, opinion pieces, interviews, notes, outlines, and other long-form source material into structured video storyboards. Use this skill whenever the user wants to convert a written argument or document into a scene-by-scene video plan, extract the central thesis and supporting structure, generate narration and on-screen text, or produce a `storyboard.json` / `video-brief.json` that can be handed to a downstream video renderer such as Remotion. Also use it when the user says the current video prompt is too vague, the visuals do not match the article, or they need a faithful content-to-video planning step before rendering.
+description: Turn articles, opinion pieces, interviews, notes, outlines, and other long-form source material into structured video storyboards. Use this skill whenever the user wants to convert a written argument or document into a scene-by-scene video plan, extract the central thesis and supporting structure, generate narration and on-screen text, or produce a `storyboard.json` / `video-brief.json` that can be handed to a downstream video renderer such as Remotion. Also use it when the user needs platform-aware storyboard planning, must lock target duration/audience/success metrics before rendering, says the current video prompt is too vague, or says the visuals do not match the article.
 ---
 
 # Article To Storyboard
@@ -20,9 +20,48 @@ Optional companion skills:
 - `frontend-design`: Use when the user wants help shaping the visual language of the resulting scene system.
 - `article-to-video`: If the user explicitly wants a PPT-style explainer workflow instead of a Remotion-style render pipeline, hand the structured output into that path instead.
 
+## Fixed Planning Input Block
+
+Before continuing, collect this exact planning block and treat every field as required:
+
+- `publishing_target`
+- `aspect_ratio`
+- `content_mode`
+- `target_duration_sec`
+- `audience`
+- `success_metric`
+
+If any field is missing, stop and request this exact block:
+
+```text
+publishing_target:
+aspect_ratio:
+content_mode:
+target_duration_sec:
+audience:
+success_metric:
+```
+
+Do not silently infer or default these values from locale, platform habits, or previous projects.
+If the user asks for recommendations, suggest one baseline preset, then wait for explicit confirmation before continuing.
+If the source material itself is missing, ask for it separately before storyboarding.
+
+## Recommended Baseline Presets
+
+Use these only as recommendations, never as silent defaults:
+
+- `bilibili-horizontal-explainer`: `publishing_target=bilibili`, `aspect_ratio=16:9`, `content_mode=explainer`, `target_duration_sec=180`, `audience=general professional audience`, `success_metric=argument-completeness`
+- `douyin-vertical-short-read`: `publishing_target=douyin`, `aspect_ratio=9:16`, `content_mode=short-read`, `target_duration_sec=75`, `audience=general workplace audience`, `success_metric=finish-rate`
+- `youtube-horizontal-deep-dive`: `publishing_target=youtube`, `aspect_ratio=16:9`, `content_mode=deep-dive`, `target_duration_sec=480`, `audience=knowledge-seeking general audience`, `success_metric=watch-time`
+
 ## Workflow
 
-### 1. Read the Source for Meaning, Not Surface Topic
+### 1. Enforce the Input Gate
+
+Verify that all required planning inputs are present before reading or compressing the source.
+If the user says only "make this for Bilibili" or only gives a duration, pause and request the remaining required fields.
+
+### 2. Read the Source for Meaning, Not Surface Topic
 
 Start by identifying:
 
@@ -34,7 +73,7 @@ Start by identifying:
 
 If the source is messy, normalize it into sections or beats before writing any storyboard output.
 
-### 2. Convert Reading Structure Into Watching Structure
+### 3. Convert Reading Structure Into Watching Structure
 
 A good article is not automatically a good video.
 Rewrite the material into a viewing sequence, usually something like:
@@ -49,7 +88,7 @@ Rewrite the material into a viewing sequence, usually something like:
 Do not preserve paragraph order blindly if the video becomes flatter as a result.
 Preserve meaning, not formatting.
 
-### 3. Define Scene Roles Before Visual Details
+### 4. Define Scene Roles Before Visual Details
 
 For each scene, decide its job first:
 
@@ -63,9 +102,10 @@ For each scene, decide its job first:
 Then choose how it should appear on screen.
 Do not jump straight from article text to decorative visuals.
 
-### 4. Generate a Structured Storyboard
+### 5. Generate a Structured Storyboard
 
 Use the schema in `references/storyboard-output.md`.
+Preserve the required planning inputs at the top level of the storyboard or brief so downstream tools and human reviewers can see what the plan is optimizing for.
 For each scene, include at least:
 
 - purpose
@@ -85,7 +125,7 @@ If the user wants music help, add a separate recommendation note at the end with
 
 If the video should stay faithful to the source, make every scene traceable back to the original material.
 
-### 5. Add Visual Constraints
+### 6. Add Visual Constraints
 
 This step is what prevents generic or off-topic imagery.
 For each scene, be explicit about:
@@ -97,7 +137,7 @@ For each scene, be explicit about:
 
 If the source is conceptual, an `avoid` list is usually required.
 
-### 6. Produce Renderer-Ready Output
+### 7. Produce Renderer-Ready Output
 
 The final deliverable should normally be one of:
 

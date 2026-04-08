@@ -53,12 +53,12 @@ DEFAULT_TTS_CONFIG = {
 
 AUTO_TTS_PROFILES = {
     "technical": {
-        "voice": "zh-CN-YunjianNeural",
-        "rate": "-5%",
+        "voice": "zh-CN-YunyangNeural",
+        "rate": "-6%",
         "volume": "+0%",
         "pitch": "+0Hz",
-        "pause": 0.35,
-        "reason": "technical and engineering language benefits from a steadier, slightly slower delivery",
+        "pause": 0.38,
+        "reason": "technical and engineering language benefits from a more professional, reliable, and slightly slower delivery",
     },
     "business": {
         "voice": "zh-CN-YunxiNeural",

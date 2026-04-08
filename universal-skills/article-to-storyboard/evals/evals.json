@@ -3,20 +3,26 @@
   "evals": [
     {
       "id": 1,
-      "prompt": "我有一篇 1800 字的 AI 产品文章，核心观点是很多团队高估模型升级，低估工作流设计。请把它整理成一份 90 秒横屏视频 storyboard，要求每段都标明 scene purpose、narration、on_screen_text、visual_role、visual_type、visual_prompt、avoid，并说明画面为什么对应原文。",
+      "prompt": "我有一篇 1800 字的 AI 产品文章，核心观点是很多团队高估模型升级，低估工作流设计。发布平台：B站。画幅：16:9。内容形态：讲解。目标时长：180 秒。目标受众：AI 产品经理和互联网团队负责人。成功标准：观点表达完整，其次兼顾完播。请把它整理成一份横屏视频 storyboard，要求每段都标明 scene purpose、narration、on_screen_text、visual_role、visual_type、visual_prompt、avoid，并说明画面为什么对应原文。",
       "expected_output": "A structured storyboard JSON or equivalent scene list that preserves the article thesis, includes source traceability, and avoids generic AI imagery.",
       "files": []
     },
     {
       "id": 2,
-      "prompt": "把这份关于组织协作的观点笔记变成 6 段短视频分镜。不要直接给我一个大而空的视频 prompt，我需要的是 renderer-friendly 的 storyboard，最好能直接交给 Remotion。观点包括：责任边界不清、审批链太长、交接成本高、信息重复录入。",
+      "prompt": "把这份关于组织协作的观点笔记变成 6 段短视频分镜。发布平台：视频号。画幅：16:9。内容形态：short-read。目标时长：90 秒。目标受众：企业管理者和流程负责人。成功标准：完播率优先。不要直接给我一个大而空的视频 prompt，我需要的是 renderer-friendly 的 storyboard，最好能直接交给 Remotion。观点包括：责任边界不清、审批链太长、交接成本高、信息重复录入。",
       "expected_output": "A renderer-friendly storyboard with six scenes, explicit scene roles, concise narration, and concrete visual constraints.",
       "files": []
     },
     {
       "id": 3,
-      "prompt": "这是一段偏抽象的文章，讨论为什么多数公司并不缺 AI 能力，而是缺把 AI 接进真实工作流的设计。请先提炼中心论点，再输出一个 60 到 75 秒的视频 brief。要求区分 thesis、evidence、example、summary，并给每段加 avoid 列表，避免机器人、代码雨、脑图之类的泛 AI 画面。",
+      "prompt": "这是一段偏抽象的文章，讨论为什么多数公司并不缺 AI 能力，而是缺把 AI 接进真实工作流的设计。发布平台：抖音。画幅：9:16。内容形态：short-read。目标时长：75 秒。目标受众：关注 AI 工具的职场用户。成功标准：前三秒留存和完播。请先提炼中心论点，再输出一个视频 brief。要求区分 thesis、evidence、example、summary，并给每段加 avoid 列表，避免机器人、代码雨、脑图之类的泛 AI 画面。",
       "expected_output": "A compact but structured video brief with central thesis extraction, scene role separation, and explicit avoid constraints for abstract content.",
+      "files": []
+    },
+    {
+      "id": 4,
+      "prompt": "把这篇关于 AI 工作流的文章改成视频 storyboard。",
+      "expected_output": "The assistant should stop and request the fixed planning input block (`publishing_target`, `aspect_ratio`, `content_mode`, `target_duration_sec`, `audience`, `success_metric`) before generating scenes.",
       "files": []
     }
   ]

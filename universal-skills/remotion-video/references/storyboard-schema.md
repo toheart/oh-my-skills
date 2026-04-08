@@ -11,9 +11,11 @@ Normalize rough content into this shape before building or updating compositions
 {
   "meta": {
     "title": "string",
+    "publishing_target": "bilibili",
     "aspect_ratio": "16:9",
     "fps": 30,
-    "duration_sec": 90,
+    "target_duration_sec": 180,
+    "duration_sec": 180,
     "theme": "editorial-tech"
   },
   "global_style": {
@@ -37,8 +39,10 @@ Normalize rough content into this shape before building or updating compositions
   },
   "source": {
     "core_thesis": "optional",
-    "audience": "optional",
+    "audience": "general professional audience",
     "tone": "optional",
+    "content_mode": "explainer",
+    "success_metric": "argument-completeness",
     "tts": {
       "voice": "optional",
       "rate": "optional",
@@ -77,6 +81,24 @@ Normalize rough content into this shape before building or updating compositions
 
 ## Field Semantics
 
+### `meta.publishing_target`
+
+Keep the destination platform explicit all the way into the render contract.
+Do not drop it during normalization, because pacing and packaging decisions should stay inspectable downstream.
+
+### `meta.aspect_ratio`
+
+Treat this as user-confirmed planning metadata, not a renderer guess.
+
+### `meta.target_duration_sec`
+
+Use this for the user-confirmed target brief.
+Keep it separate from `meta.duration_sec` so the original target survives even if audio timing later adjusts the final runtime.
+
+### `meta.duration_sec`
+
+Use this as the actual normalized render duration after scene timing has been resolved.
+
 ### `purpose`
 
 Why the scene exists in the argument or story.
@@ -91,6 +113,25 @@ Use this when fidelity to source material matters.
 
 Briefly explain how the scene interprets the source.
 Use it to prevent a flashy but misleading visual translation.
+
+### `source.audience`
+
+Required.
+Use it to keep pacing, terminology, and exposition density aligned with the intended viewer.
+
+### `source.content_mode`
+
+Required.
+Typical values:
+
+- `short-read`
+- `explainer`
+- `deep-dive`
+
+### `source.success_metric`
+
+Required.
+State what the video is optimizing for, such as finish rate, save value, argument completeness, or conversion.
 
 ### `visual_role`
 
@@ -119,6 +160,7 @@ Use this to pick a rendering pattern:
 
 ## Normalization Rules
 
+- Preserve required planning metadata instead of collapsing it away during normalization.
 - Convert free-form narration into one scene per clear beat.
 - Keep scene durations explicit.
 - Keep on-screen text short enough to read at speed.
@@ -128,6 +170,39 @@ Use this to pick a rendering pattern:
 - Preserve `subtitle_path`, `captions`, and any TTS overrides instead of dropping them during normalization.
 - Leave `music_path` empty unless the user explicitly provided a music file to use.
 
+## Fixed Planning Input Block
+
+Before continuing, collect this exact planning block and treat every field as required:
+
+- `meta.publishing_target`
+- `meta.aspect_ratio`
+- `meta.target_duration_sec`
+- `source.audience`
+- `source.content_mode`
+- `source.success_metric`
+
+If any field is missing, stop and request this exact block:
+
+```text
+publishing_target:
+aspect_ratio:
+content_mode:
+target_duration_sec:
+audience:
+success_metric:
+```
+
+Do not silently infer or default these values from locale, platform habits, or previous projects.
+If the user asks for recommendations, suggest one baseline preset, then wait for explicit confirmation before continuing.
+
+## Recommended Baseline Presets
+
+Use these only as recommendations, never as silent defaults:
+
+- `bilibili-horizontal-explainer`: `publishing_target=bilibili`, `aspect_ratio=16:9`, `content_mode=explainer`, `target_duration_sec=180`, `audience=general professional audience`, `success_metric=argument-completeness`
+- `douyin-vertical-short-read`: `publishing_target=douyin`, `aspect_ratio=9:16`, `content_mode=short-read`, `target_duration_sec=75`, `audience=general workplace audience`, `success_metric=finish-rate`
+- `youtube-horizontal-deep-dive`: `publishing_target=youtube`, `aspect_ratio=16:9`, `content_mode=deep-dive`, `target_duration_sec=480`, `audience=knowledge-seeking general audience`, `success_metric=watch-time`
+
 ## For Article-Like Inputs
 
 If the input is a long article or观点, add these constraints:
@@ -136,6 +211,7 @@ If the input is a long article or观点, add these constraints:
 - Convert reading order into viewing order rather than preserving every paragraph.
 - Prefer 5 to 10 scenes for short videos.
 - Use `interpretation_note` whenever the visual is metaphorical rather than literal.
+- Preserve the article planning fields when moving into the normalized Remotion contract.
 
 ## Default Avoid List
 
