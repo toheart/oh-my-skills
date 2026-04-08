@@ -1,5 +1,81 @@
 # 数据格式定义
 
+## Cursor 存储版本
+
+### Cursor 2.x (旧版)
+- 会话元数据: `workspaceStorage/{id}/state.vscdb` → `composer.composerData` (ItemTable)
+- 对话内容: `~/.cursor/projects/{key}/agent-transcripts/{session_id}.txt`
+- 代码统计: `globalStorage/state.vscdb` → `aiCodeTracking.dailyStats.v1.5.{date}` (ItemTable)
+
+### Cursor 3.x (新版)
+- 会话元数据: `globalStorage/state.vscdb` → `composer.composerHeaders` (ItemTable)
+- 完整会话数据: `globalStorage/state.vscdb` → `composerData:{composerId}` (cursorDiskKV 表)
+- 消息内容: `globalStorage/state.vscdb` → `bubbleId:{composerId}:{bubbleId}` (cursorDiskKV 表)
+- 对话文件: `~/.cursor/projects/{key}/agent-transcripts/{session_id}.jsonl` (JSONL 格式, 少量)
+- 占位符文件: `~/.cursor/projects/{key}/agent-transcripts/{session_id}` (无扩展名, 0 bytes)
+- 代码统计: 同旧版
+
+### Cursor 3.x 关键数据结构
+
+**composerHeaders (ItemTable)**:
+```json
+{
+  "allComposers": [
+    {
+      "type": "head",
+      "composerId": "uuid",
+      "name": "session name",
+      "lastUpdatedAt": 1775633539642,
+      "createdAt": 1775633504452,
+      "unifiedMode": "agent",
+      "totalLinesAdded": 100,
+      "totalLinesRemoved": 20,
+      "subtitle": "file1.py, file2.ts",
+      "workspaceIdentifier": {
+        "id": "workspace_hash",
+        "uri": {
+          "fsPath": "d:\\workspace\\project",
+          "external": "file:///d%3A/workspace/project"
+        }
+      }
+    }
+  ]
+}
+```
+
+**composerData:{composerId} (cursorDiskKV)**:
+```json
+{
+  "_v": 14,
+  "composerId": "uuid",
+  "fullConversationHeadersOnly": [
+    {"bubbleId": "uuid", "type": 1},
+    {"bubbleId": "uuid", "type": 2}
+  ],
+  "conversationMap": {}
+}
+```
+
+**bubbleId:{composerId}:{bubbleId} (cursorDiskKV)**:
+```json
+{
+  "_v": 3,
+  "type": 1,
+  "bubbleId": "uuid",
+  "text": "消息文本内容",
+  "toolResults": [],
+  "codeBlocks": []
+}
+```
+- `type=1`: 用户消息
+- `type=2`: AI 助手消息
+
+**.jsonl transcript 格式**:
+```json
+{"role":"user","message":{"content":[{"type":"text","text":"用户消息"}]}}
+{"role":"assistant","message":{"content":[{"type":"text","text":"AI 回复"}]}}
+```
+
 ## 保存参数
 
 save_summary.py 的参数说明:

@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """获取指定日期的 Cursor 会话列表
 
+兼容 Cursor 2 (工作区级 composerData) 和 Cursor 3 (全局 composerHeaders + cursorDiskKV)。
+
 用法:
   python fetch_sessions.py --date 2026-03-02
   python fetch_sessions.py --date 2026-03-02 --project D:/code/myproject
@@ -17,7 +19,7 @@ if sys.platform == "win32":
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from cursor_reader import get_sessions_by_date
+from cursor_reader import get_sessions_by_date, get_cursor_version
 
 
 def main():
@@ -32,6 +34,7 @@ def main():
         sessions = get_sessions_by_date(args.date, args.project)
         output = {
             "date": args.date,
+            "cursor_version": get_cursor_version(),
             "total_sessions": len(sessions),
             "sessions": sessions,
         }

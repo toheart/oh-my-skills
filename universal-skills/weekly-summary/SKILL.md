@@ -6,12 +6,15 @@ description: Generate weekly work reports by aggregating daily summaries or read
 # Weekly Summary Skill
 
 > **依赖**: Python 3.x（仅使用标准库 sqlite3、json、os）
+> **兼容**: Cursor 2.x 和 Cursor 3.x
 
 ## 前置检查
 
 ```bash
 python scripts/cursor_reader.py paths
 ```
+
+预期输出包含 `cursor_version` 字段。`cursor_version: 3` 表示 Cursor 3 存储结构（composerHeaders + cursorDiskKV）。
 
 ## 工作流
 

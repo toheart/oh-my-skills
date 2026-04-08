@@ -258,9 +258,10 @@ def generate_page_clip(page: dict, workspace_dir: str, audio_dir: str,
             "-i", audio_path,
             "-filter_complex", filter_complex,
             "-map", "[v]", "-map", "1:a",
-            "-c:v", "libx264", "-preset", "medium", "-crf", "23",
-            "-c:a", "aac", "-b:a", "128k",
+            "-c:v", "libx264", "-preset", "medium", "-crf", "20",
+            "-c:a", "aac", "-b:a", "192k", "-ar", "44100", "-ac", "2",
             "-pix_fmt", "yuv420p",
+            "-movflags", "+faststart",
             "-t", str(duration),
             clip_path,
         ], desc=f"page {page_num}")
@@ -281,9 +282,10 @@ def generate_page_clip(page: dict, workspace_dir: str, audio_dir: str,
             "-f", "lavfi", "-i", f"anullsrc=r=44100:cl=stereo",
             "-filter_complex", silent_filter + "[v]",
             "-map", "[v]", "-map", "1:a",
-            "-c:v", "libx264", "-preset", "medium", "-crf", "23",
-            "-c:a", "aac", "-b:a", "128k",
+            "-c:v", "libx264", "-preset", "medium", "-crf", "20",
+            "-c:a", "aac", "-b:a", "192k", "-ar", "44100", "-ac", "2",
             "-pix_fmt", "yuv420p",
+            "-movflags", "+faststart",
             "-t", str(duration),
             clip_path,
         ], desc=f"page {page_num} (silent)")
@@ -312,25 +314,46 @@ def concat_clips(clip_paths: list[str], output_path: str, transition: float):
 
 
 def _concat_simple(clip_paths: list[str], output_path: str):
-    """简单拼接，无转场。"""
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
+    """简单拼接，无转场。优先用 concat filter 避免中文路径编码问题。"""
+    if len(clip_paths) <= 15:
+        # concat filter 方式：通过 -i 传入，不经过文件列表，避免编码问题
+        inputs = []
         for p in clip_paths:
-            f.write(f"file '{os.path.abspath(p)}'\n")
-        list_file = f.name
-
-    try:
-        run_ffmpeg([
-            "-f", "concat", "-safe", "0", "-i", list_file,
-            "-c", "copy", output_path,
-        ], desc="concat")
-    finally:
-        os.unlink(list_file)
+            inputs.extend(["-i", p])
+        n = len(clip_paths)
+        streams = "".join(f"[{i}:v][{i}:a]" for i in range(n))
+        filter_expr = f"{streams}concat=n={n}:v=1:a=1[vout][aout]"
+        run_ffmpeg(
+            inputs + [
+                "-filter_complex", filter_expr,
+                "-map", "[vout]", "-map", "[aout]",
+                "-c:v", "libx264", "-preset", "medium", "-crf", "20",
+                "-c:a", "aac", "-b:a", "192k", "-ar", "44100", "-ac", "2",
+                "-pix_fmt", "yuv420p",
+                "-movflags", "+faststart",
+                output_path,
+            ],
+            desc="concat-filter",
+        )
+    else:
+        # 片段太多时回退到 concat demuxer
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, encoding="utf-8") as f:
+            for p in clip_paths:
+                f.write(f"file '{os.path.abspath(p)}'\n")
+            list_file = f.name
+        try:
+            run_ffmpeg([
+                "-f", "concat", "-safe", "0", "-i", list_file,
+                "-c", "copy", output_path,
+            ], desc="concat")
+        finally:
+            os.unlink(list_file)
 
 
 def _concat_with_xfade(clip_paths: list[str], output_path: str, transition: float):
     """带 xfade 淡入淡出转场的拼接。"""
-    # xfade 在片段多时 filter_complex 会很长，超过 10 个片段时回退到简单拼接
-    if len(clip_paths) > 10:
+    # xfade 在片段多时 filter_complex 会很长，超过 15 个片段时回退到简单拼接
+    if len(clip_paths) > 15:
         print("WARNING: too many clips for xfade, falling back to simple concat", file=sys.stderr)
         _concat_simple(clip_paths, output_path)
         return
@@ -384,9 +407,10 @@ def _concat_with_xfade(clip_paths: list[str], output_path: str, transition: floa
         inputs + [
             "-filter_complex", filter_complex,
             "-map", "[vout]", "-map", "[aout]",
-            "-c:v", "libx264", "-preset", "medium", "-crf", "23",
-            "-c:a", "aac", "-b:a", "128k",
+            "-c:v", "libx264", "-preset", "medium", "-crf", "20",
+            "-c:a", "aac", "-b:a", "192k", "-ar", "44100", "-ac", "2",
             "-pix_fmt", "yuv420p",
+            "-movflags", "+faststart",
             output_path,
         ],
         desc="xfade concat",

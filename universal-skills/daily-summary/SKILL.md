@@ -6,6 +6,7 @@ description: Generate daily work reports from Cursor chat history by reading loc
 # Daily Summary Skill
 
 > **依赖**: Python 3.x（仅使用标准库 sqlite3、json、os）
+> **兼容**: Cursor 2.x 和 Cursor 3.x
 
 ## 前置检查
 
@@ -15,7 +16,8 @@ description: Generate daily work reports from Cursor chat history by reading loc
 python scripts/cursor_reader.py paths
 ```
 
-预期输出: 包含 `user_data_dir`、`projects_dir` 等路径的 JSON。
+预期输出: 包含 `user_data_dir`、`projects_dir`、`cursor_version` 等的 JSON。
+`cursor_version` 为 3 表示 Cursor 3 存储结构（composerHeaders + cursorDiskKV）。
 如果报错，检查 Cursor 是否已安装并运行过，或设置环境变量 `CURSOR_USER_DATA_DIR`。
 
 ## 工作流

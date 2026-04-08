@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """获取指定会话的完整对话内容
 
+兼容 Cursor 2 (transcript 文件) 和 Cursor 3 (bubble 数据)。
+Cursor 3 优先从 cursorDiskKV 的 bubble 数据读取对话，
+作为 fallback 也支持 .jsonl 和 .txt transcript 文件。
+
 用法:
   python fetch_conversations.py --session-id <uuid>
   python fetch_conversations.py --session-id <uuid> --text-only
@@ -19,7 +23,12 @@ if sys.platform == "win32":
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from cursor_reader import get_transcript_content, find_transcript_file
+from cursor_reader import (
+    get_transcript_content,
+    find_transcript_file,
+    get_bubble_messages_v3,
+    get_cursor_version,
+)
 from transcript_parser import parse_transcript, extract_text_only
 
 
@@ -34,27 +43,51 @@ def main():
     args = parser.parse_args()
 
     try:
-        content = get_transcript_content(args.session_id)
-        if content is None:
+        messages = None
+        source = "unknown"
+        version = get_cursor_version()
+
+        if version >= 3:
+            # Cursor 3: 优先从 bubble 数据读取
+            bubble_msgs = get_bubble_messages_v3(args.session_id, text_only=args.text_only)
+            if bubble_msgs:
+                messages = bubble_msgs
+                source = "bubbles_v3"
+
+                if args.user_only:
+                    messages = [m for m in messages if m["role"] == "user"]
+
+                if args.no_code:
+                    messages = extract_text_only(messages)
+
+        # Fallback: transcript 文件
+        if not messages:
+            content = get_transcript_content(args.session_id)
+            if content:
+                messages = parse_transcript(
+                    content,
+                    text_only=args.text_only,
+                    user_only=args.user_only,
+                )
+                source = "transcript"
+
+                if args.no_code:
+                    messages = extract_text_only(messages)
+
+        if not messages:
             print(json.dumps({
-                "error": f"Transcript not found for session: {args.session_id}",
+                "error": f"No conversation data found for session: {args.session_id}",
                 "session_id": args.session_id,
+                "cursor_version": version,
             }), file=sys.stderr)
             sys.exit(1)
 
-        messages = parse_transcript(
-            content,
-            text_only=args.text_only,
-            user_only=args.user_only,
-        )
-
-        if args.no_code:
-            messages = extract_text_only(messages)
-
-        _, project_key = find_transcript_file(args.session_id)
+        _, project_key, _ = find_transcript_file(args.session_id)
         output = {
             "session_id": args.session_id,
             "project_key": project_key,
+            "source": source,
+            "cursor_version": version,
             "total_messages": len(messages),
             "messages": messages,
         }
