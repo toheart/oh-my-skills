@@ -62,8 +62,9 @@ Follow this order by default:
 1. normalize and validate the storyboard contract
 2. choose whether to patch an existing Remotion project or bootstrap the starter template
 3. generate audio and captions when narration should drive timing
-4. render through SSR with one stable props object
-5. verify the output before calling the job done
+4. align on-screen text anchors to narration timing when the storyboard includes `on_screen_text_anchors`
+5. render through SSR with one stable props object
+6. verify the output before calling the job done
 
 If the user only wants high-level planning, you can stop earlier.
 If the user wants implementation, drive the task through the full pipeline instead of giving generic advice.
@@ -250,7 +251,23 @@ Do not treat BGM as part of this automatic audio step.
 This skill's built-in automation is for narration and subtitles.
 Background music is user-supplied only.
 
-## 7. Verify Output
+## 7. Align Anchors to Narration Timing
+
+If the storyboard contains `on_screen_text_anchors` and audio has been generated with captions, run the anchor alignment step before rendering:
+
+```bash
+python scripts/align_anchors.py \
+  <workspace>/storyboard.normalized.json \
+  <workspace>/audio/captions.json
+```
+
+This converts plain-string `on_screen_text` entries into `OnScreenTextItem` objects with precise `appear_at_ms` timestamps derived from the TTS captions. The renderer's `useStaggeredItem` hook then triggers spring-based entry animations synced to the narration.
+
+If the storyboard does not have anchors, skip this step. The renderer falls back to equal-interval staggering.
+
+Read `references/audio-pipeline.md` for details on how anchor alignment works.
+
+## 8. Verify Output
 
 After rendering, check:
 
@@ -281,7 +298,7 @@ python scripts/verify_output.py <workspace>/output/final.mp4 <workspace>/storybo
 If verification reports contract problems, fix the storyboard or media pipeline first.
 Do not paper over sync issues by hand-tuning JSX timing in isolation.
 
-## 8. Batch Rendering
+## 9. Batch Rendering
 
 For repeatable template families, use one stable composition plus a batch of props files.
 
@@ -353,6 +370,7 @@ Use these scripts by default instead of recreating their logic:
 - `scripts/normalize_storyboard.py`: normalize and validate structured input
 - `scripts/generate_audio.py`: generate voiceover, subtitles, and audio-driven timing
 - `scripts/render_video.ts`: run the shared SSR render path
+- `scripts/align_anchors.py`: align on-screen text to narration timing via anchor keywords
 - `scripts/verify_output.py`: verify duration, audio alignment, and subtitle timing
 
 ## BGM Recommendation Policy

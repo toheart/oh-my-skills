@@ -139,6 +139,9 @@ def normalize_scene(scene: dict[str, Any], index: int, start_sec: float, duratio
         "avoid": ensure_list(scene.get("avoid")),
         "motion_intent": scene.get("motion_intent", "restrained reveal"),
     }
+    anchors = scene.get("on_screen_text_anchors")
+    if isinstance(anchors, list) and anchors:
+        normalized_scene["on_screen_text_anchors"] = anchors
     scene_tts = clean_optional_dict(scene.get("tts"))
     if scene_tts:
         normalized_scene["tts"] = scene_tts

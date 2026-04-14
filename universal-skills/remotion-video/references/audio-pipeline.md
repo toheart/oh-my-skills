@@ -79,6 +79,30 @@ The normalized contract may also carry optional TTS overrides:
 
 Normalization should preserve these fields so audio generation remains configurable after preflight.
 
+## Anchor Alignment (Narration-Synced Reveal)
+
+After TTS generates captions with precise timestamps, an optional alignment step can synchronize on-screen text entry animations with the narration.
+
+Run `scripts/align_anchors.py` after audio generation and before rendering:
+
+```bash
+python scripts/align_anchors.py \
+  <workspace>/storyboard.normalized.json \
+  <workspace>/audio/captions.json
+```
+
+This script:
+
+1. reads `on_screen_text_anchors` from each scene (keyword pairs generated upstream by `article-to-storyboard` or manually authored)
+2. matches each anchor keyword against the scene's TTS captions
+3. computes `appear_at_ms` (milliseconds relative to scene start) for each on-screen text entry
+4. rewrites `on_screen_text` from plain strings to `OnScreenTextItem` objects with `{ text, appear_at_ms, anchor }`
+5. ensures monotonic ordering with minimum gaps between consecutive entries
+
+The renderer's `useStaggeredItem` hook then triggers spring-based entry animations at these precise timestamps, creating a narration-synced staggered reveal effect.
+
+If the storyboard does not contain `on_screen_text_anchors`, skip this step. The renderer falls back to equal-interval staggering.
+
 ## Acceptance Bias
 
 Always treat audio generation as part of sync correctness.

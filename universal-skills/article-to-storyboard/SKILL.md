@@ -113,6 +113,7 @@ For each scene, include at least:
 - interpretation note when needed
 - narration
 - on-screen text
+- on-screen text anchors (when downstream rendering will use narration-synced timing)
 - visual role
 - visual type
 - visual prompt
@@ -124,6 +125,29 @@ Do not automatically assign or download BGM as part of the storyboard contract.
 If the user wants music help, add a separate recommendation note at the end with a few online BGM directions or candidate tracks, and leave final music choice to the user.
 
 If the video should stay faithful to the source, make every scene traceable back to the original material.
+
+### 5b. Add Narration Anchors for Synced Entry Animations
+
+When the downstream renderer is `remotion-video` and the video will use TTS-generated narration, add `on_screen_text_anchors` to each scene. This enables narration-synced staggered reveal animations where each visual element enters the screen at the exact moment the narrator speaks the corresponding phrase.
+
+For each `on_screen_text` entry, include a companion anchor:
+
+```json
+"on_screen_text": ["200 题抽 50 · 80 分通过"],
+"on_screen_text_anchors": [
+  { "text": "200 题抽 50 · 80 分通过", "anchor": "题库一共200题" }
+]
+```
+
+Choose anchors that are:
+
+- distinctive keywords or short phrases from the scene's narration
+- unique within the scene (appear exactly once in narration text)
+- nouns, numbers, or domain terms rather than common filler words
+
+The downstream `remotion-video` skill uses these anchors to match against TTS caption timestamps and compute precise `appear_at_ms` values. If anchors are not provided, the renderer falls back to equal-interval staggering.
+
+See `references/storyboard-output.md` for the full field specification.
 
 ### 6. Add Visual Constraints
 
@@ -150,7 +174,7 @@ Optional companion deliverable:
 - `bgm_recommendations`: a short human-readable list of recommended online tracks or search directions based on the article's tone
 
 If a downstream renderer is known, bias the output toward its input contract.
-For `remotion-video`, keep the structure stable and machine-friendly.
+For `remotion-video`, keep the structure stable and machine-friendly, and include `on_screen_text_anchors` so the renderer can align visual entry animations to TTS narration timestamps.
 
 ## Fidelity Rules
 

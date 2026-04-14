@@ -26,6 +26,12 @@ Use this reference as the output contract for downstream rendering.
       "duration_sec": 8,
       "narration": "string",
       "on_screen_text": ["string"],
+      "on_screen_text_anchors": [
+        {
+          "text": "same as on_screen_text entry",
+          "anchor": "keyword from narration"
+        }
+      ],
       "visual_role": "thesis|evidence|contrast|process|example|summary",
       "visual_type": "kinetic-type|quote|diagram|image-led|timeline|summary-list",
       "visual_prompt": "string",
@@ -106,6 +112,32 @@ It should sound natural when read aloud.
 Keep it short and scannable.
 It should reinforce the spoken line, not duplicate a paragraph.
 
+### `on_screen_text_anchors`
+
+An optional companion field that enables downstream narration-synced entry animations.
+For each `on_screen_text` entry, provide a `{ text, anchor }` pair where `anchor` is a distinctive keyword or short phrase that appears in the scene's `narration`.
+
+When the downstream `remotion-video` skill generates TTS audio and runs anchor alignment, these keywords are matched against caption timestamps to compute precise `appear_at_ms` values, so each visual element enters the screen at the exact moment the narrator speaks the corresponding phrase.
+
+Guidelines for choosing good anchors:
+
+- pick a keyword that appears exactly once in the scene narration
+- prefer a noun, number, or distinctive phrase over a common word
+- avoid punctuation-only or single-character anchors
+- if a suitable unique keyword does not exist, use a 2-3 word phrase
+
+Example:
+
+```json
+"narration": "题库一共200题，系统会随机抽50题",
+"on_screen_text": ["200 题抽 50 · 80 分通过"],
+"on_screen_text_anchors": [
+  { "text": "200 题抽 50 · 80 分通过", "anchor": "题库一共200题" }
+]
+```
+
+If `on_screen_text_anchors` is omitted, the renderer falls back to equal-interval staggering.
+
 ### `visual_role`
 
 Describe why the scene exists.
@@ -181,6 +213,7 @@ Before finalizing the storyboard, verify:
 - there is enough source traceability
 - the total duration is realistic for the chosen platform and content mode
 - the pacing matches the declared success metric
+- `on_screen_text_anchors` are present when the downstream renderer will use narration-synced timing, and each anchor keyword is distinctive and appears in the scene narration
 
 ## Duration Heuristics
 

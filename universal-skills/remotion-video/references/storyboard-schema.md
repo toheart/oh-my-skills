@@ -60,7 +60,13 @@ Normalize rough content into this shape before building or updating compositions
       "source_refs": [],
       "interpretation_note": "optional",
       "narration": "string",
-      "on_screen_text": ["string"],
+      "on_screen_text": ["string or OnScreenTextItem"],
+      "on_screen_text_anchors": [
+        {
+          "text": "same as on_screen_text entry",
+          "anchor": "keyword from narration"
+        }
+      ],
       "visual_role": "thesis|evidence|contrast|process|example|summary",
       "visual_type": "kinetic-type|quote|diagram|image-led|timeline|summary-list",
       "asset_refs": [],
@@ -133,6 +139,41 @@ Typical values:
 Required.
 State what the video is optimizing for, such as finish rate, save value, argument completeness, or conversion.
 
+### `on_screen_text` (extended form)
+
+When the storyboard uses narration-synced timing, `on_screen_text` entries can be objects instead of plain strings:
+
+```json
+{
+  "text": "200 题抽 50 · 80 分通过",
+  "appear_at_ms": 14247,
+  "anchor": "题库一共200题"
+}
+```
+
+- `text`: the display string
+- `appear_at_ms`: milliseconds relative to scene start when the element should enter the screen; computed by `scripts/align_anchors.py` after TTS captions are generated
+- `anchor`: a keyword or phrase from the narration text used to locate the corresponding caption timestamp
+
+The renderer's `useStaggeredItem` hook consumes `appear_at_ms` to trigger spring-based entry animations at the exact moment the narrator speaks the matching phrase.
+
+Plain strings remain valid and will use equal-interval staggering as a fallback.
+
+### `on_screen_text_anchors`
+
+An optional companion field that pairs each `on_screen_text` entry with a narration keyword:
+
+```json
+"on_screen_text_anchors": [
+  { "text": "AI 认证培训 · L1 基础", "anchor": "L1" },
+  { "text": "200 题抽 50 · 80 分通过", "anchor": "题库一共200题" }
+]
+```
+
+This field is consumed by `scripts/align_anchors.py` to match anchor keywords against TTS captions and compute `appear_at_ms`. After alignment, `on_screen_text` is rewritten to the extended `OnScreenTextItem` form.
+
+The upstream `article-to-storyboard` skill generates this field by selecting a distinctive keyword from each on-screen text's corresponding narration segment.
+
 ### `visual_role`
 
 Use this to identify the job the scene is doing:
@@ -164,6 +205,7 @@ Use this to pick a rendering pattern:
 - Convert free-form narration into one scene per clear beat.
 - Keep scene durations explicit.
 - Keep on-screen text short enough to read at speed.
+- When narration-synced timing is desired, include `on_screen_text_anchors` with a distinctive keyword per entry so `align_anchors.py` can compute `appear_at_ms` after TTS generation.
 - Add `avoid` whenever the source is conceptual and easy to stereotype visually.
 - Do not let multiple scene types overlap in a way that makes the template ambiguous.
 - If voiceover and captions exist, prefer real audio-driven timing over guessed scene duration.
