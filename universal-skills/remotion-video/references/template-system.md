@@ -94,6 +94,35 @@ Also keep these constraints:
 - internal planning fields such as `avoid` and `visual_prompt` are usually for generation logic, QA notes, or upstream asset generation, not for final viewer-facing UI
 - subtitles need their own safe area and should not compete with scene chrome
 
+## Narration-Synced Reveal
+
+The starter template natively supports narration-synced element reveal via `appear_at_ms` timestamps on `on_screen_text` items.
+
+### How It Works
+
+1. `on_screen_text` accepts both `string` and `OnScreenTextItem` (`{text, appear_at_ms?, anchor?}`)
+2. `useStaggeredItem(index, staggerMs, appearAtMs?)` checks `appearAtMs` first; if present, the element enters at that precise millisecond offset from scene start; if absent, it falls back to equal-interval staggering
+3. `align_anchors.py` populates `appear_at_ms` by matching `anchor` keywords against TTS captions
+
+### Rendering Rules
+
+- All six scene components (Thesis, Diagram, Timeline, SummaryList, Quote, ImageLed) support `OnScreenTextItem`
+- Elements with `appear_at_ms` enter via `spring()` animation at the exact frame, creating a reveal effect synchronized to the narrator speaking the corresponding phrase
+- When `on_screen_text` contains plain strings (no anchors), the renderer falls back to equal-interval staggering — no code changes needed
+- Do not mix anchor-synced and manually-timed `appear_at_ms` in the same scene; pick one timing source
+
+### Data Flow
+
+```
+storyboard.json (anchor keywords in on_screen_text_anchors)
+    ↓ generate_audio.py
+captions.json (word-level timestamps)
+    ↓ align_anchors.py
+storyboard.normalized.json (on_screen_text as OnScreenTextItem[] with appear_at_ms)
+    ↓ Remotion useStaggeredItem
+spring animation at precise frame
+```
+
 ## When To Use Companion Skills
 
 - Use `frontend-design` when the template family needs stronger typography, layout, or visual-language definition.

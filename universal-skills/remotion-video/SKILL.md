@@ -1,6 +1,6 @@
 ---
 name: remotion-video
-description: Render structured videos with Remotion using React and TypeScript. Use this skill whenever the user wants to generate, edit, template, batch-render, or server-side render videos with Remotion; when they already have a storyboard, scene list, narration, subtitles, or a `storyboard.json` / `video-brief.json`; or when they ask to turn structured content into a reusable motion-graphics video pipeline. Also use it when the user wants to modify an existing Remotion composition, map content into video templates, or export MP4 output from a React-based video workflow.
+description: Render structured videos with Remotion using React and TypeScript. Use this skill whenever the user wants to generate, edit, template, batch-render, or server-side render videos with Remotion; when they already have a storyboard, scene list, narration, subtitles, or a `storyboard.json` / `video-brief.json`; or when they ask to turn structured content into a reusable motion-graphics video pipeline. Also use it when the user wants to modify an existing Remotion composition, map content into video templates, or export MP4 output from a React-based video workflow. Supports narration-synced element reveal (v-click), scene transitions, karaoke subtitles, SVG path animation, Lottie animation, Three.js 3D scenes, and other advanced Remotion features.
 ---
 
 # Remotion Video
@@ -63,8 +63,9 @@ Follow this order by default:
 2. choose whether to patch an existing Remotion project or bootstrap the starter template
 3. generate audio and captions when narration should drive timing
 4. align on-screen text anchors to narration timing when the storyboard includes `on_screen_text_anchors`
-5. render through SSR with one stable props object
-6. verify the output before calling the job done
+5. evaluate and apply advanced features when conditions warrant (transitions, karaoke subtitles, SVG animation, etc.)
+6. render through SSR with one stable props object
+7. verify the output before calling the job done
 
 If the user only wants high-level planning, you can stop earlier.
 If the user wants implementation, drive the task through the full pipeline instead of giving generic advice.
@@ -267,7 +268,25 @@ If the storyboard does not have anchors, skip this step. The renderer falls back
 
 Read `references/audio-pipeline.md` for details on how anchor alignment works.
 
-## 8. Verify Output
+## 8. Evaluate Advanced Features
+
+After anchor alignment (or after choosing to skip it), evaluate whether the video benefits from advanced Remotion features.
+Read `references/advanced-features.md` only when at least one of these conditions is true:
+
+- the storyboard has more than 8 scenes and hard cuts feel jarring
+- the user requests smooth transitions, karaoke subtitles, SVG animations, or 3D scenes
+- the storyboard references video assets (not just images) in `asset_refs`
+- batch rendering of more than 10 videos is needed
+
+If none of these apply, skip this step. The default template family with spring animations is sufficient.
+
+When adding advanced features, follow these constraints:
+
+- do not add more than 2 advanced features to a single project
+- install only the Remotion packages the project actually needs
+- all feature toggles should flow through storyboard props, not hardcoded switches
+
+## 9. Verify Output
 
 After rendering, check:
 
@@ -298,7 +317,7 @@ python scripts/verify_output.py <workspace>/output/final.mp4 <workspace>/storybo
 If verification reports contract problems, fix the storyboard or media pipeline first.
 Do not paper over sync issues by hand-tuning JSX timing in isolation.
 
-## 9. Batch Rendering
+## 10. Batch Rendering
 
 For repeatable template families, use one stable composition plus a batch of props files.
 
@@ -360,8 +379,9 @@ Read these files as needed:
 - `assets/starter-template/`: bundled Remotion starter project for fresh builds or controlled rewrites
 - `references/remotion-ssr.md`: Remotion server-side rendering flow and implementation notes
 - `references/storyboard-schema.md`: input schema and normalization guidance
-- `references/template-system.md`: recommended component families and mapping rules
+- `references/template-system.md`: recommended component families, mapping rules, and narration-synced reveal rendering
 - `references/audio-pipeline.md`: bundled voiceover and subtitle generation flow
+- `references/advanced-features.md`: scene transitions, karaoke subtitles, SVG path animation, Lottie, Three.js, and other advanced Remotion features with selection heuristics
 - `references/output-acceptance.md`: render acceptance criteria for sync and audio quality
 
 Use these scripts by default instead of recreating their logic:

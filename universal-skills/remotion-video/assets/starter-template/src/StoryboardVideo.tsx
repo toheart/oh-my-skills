@@ -10,7 +10,16 @@ import {
   useCurrentFrame,
   useVideoConfig,
 } from 'remotion';
-import type {StoryScene, StoryboardProps, VisualRole, VisualType} from './types';
+import type {OnScreenTextItem, StoryScene, StoryboardProps, VisualRole, VisualType} from './types';
+
+function resolveOST(item: string | OnScreenTextItem): {text: string; appear_at_ms?: number} {
+  if (typeof item === 'string') return {text: item};
+  return {text: item.text, appear_at_ms: item.appear_at_ms};
+}
+
+function resolveOSTList(items: (string | OnScreenTextItem)[]): {text: string; appear_at_ms?: number}[] {
+  return items.map(resolveOST);
+}
 
 type Palette = {
   base: string;
@@ -190,13 +199,16 @@ const useSceneMotion = (visualType?: VisualType) => {
 };
 
 /**
- * 为列表项目（diagram nodes / timeline beats / summary items）提供逐条交错入场动效。
- * 每个子项相对于场景开始有一个递增的延迟，制造"依次展开"的视觉节奏。
+ * 为列表项目提供逐条交错入场动效。
+ * 如果提供了 appear_at_ms（来自 align_anchors.py），则按精确时间触发；
+ * 否则按等间隔 staggerMs 递增延迟。
  */
-const useStaggeredItem = (index: number, staggerMs: number = 120) => {
+const useStaggeredItem = (index: number, staggerMs: number = 120, appearAtMs?: number) => {
   const frame = useCurrentFrame();
   const {fps} = useVideoConfig();
-  const delayFrames = Math.round((staggerMs * (index)) / 1000 * fps);
+  const delayFrames = appearAtMs != null
+    ? Math.round((appearAtMs / 1000) * fps)
+    : Math.round((staggerMs * index) / 1000 * fps);
   const localFrame = Math.max(0, frame - delayFrames);
 
   const enter = spring({
@@ -355,87 +367,50 @@ const ThesisScene: React.FC<{scene: StoryScene}> = ({scene}) => {
   const palette = ROLE_PALETTES[scene.visual_role] ?? ROLE_PALETTES.thesis;
   const {width, height} = useVideoConfig();
   const {opacity, rise} = useSceneMotion('kinetic-type');
-  const lines = scene.on_screen_text.length > 0 ? scene.on_screen_text : [scene.purpose];
-  const supporting = splitNarration(scene.narration, 2);
+  const ostItems = resolveOSTList(scene.on_screen_text);
+  const lines = ostItems.length > 0 ? ostItems : [{text: scene.purpose}];
 
   return (
     <FrameShell scene={scene}>
       <div
         style={{
-          display: 'grid',
-          gridTemplateColumns: width >= height ? '1.35fr 0.8fr' : '1fr',
-          gap: 36,
-          alignItems: 'center',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 24,
+          justifyContent: 'center',
           transform: `translateY(${rise}px)`,
         }}
       >
-        <div style={{display: 'flex', flexDirection: 'column', gap: 18, opacity}}>
-          <div
-            style={{
-              fontFamily: DISPLAY_FONT,
-              fontSize: width < height ? 72 : 110,
-              lineHeight: 0.92,
-              fontWeight: 700,
-              letterSpacing: -2,
-            }}
-          >
-            {lines.map((line, index) => (
-              <div key={`${line}-${index}`}>{line}</div>
-            ))}
-          </div>
-          <div
-            style={{
-              width: width < height ? 180 : 260,
-              height: 6,
-              borderRadius: 999,
-              background: palette.accent,
-            }}
-          />
-          {supporting.map((line) => (
+        {lines.map((item, index) => {
+          const stagger = useStaggeredItem(index, 180, item.appear_at_ms);
+          return (
             <div
-              key={line}
+              key={`${item.text}-${index}`}
               style={{
-                fontSize: width < height ? 24 : 34,
-                lineHeight: 1.3,
-                color: palette.muted,
-                maxWidth: '82%',
+                padding: '24px 32px',
+                borderRadius: 24,
+                background: palette.panel,
+                border: `1px solid ${palette.line}`,
+                backdropFilter: 'blur(10px)',
+                opacity: stagger.opacity,
+                transform: `translateY(${stagger.rise}px)`,
               }}
             >
-              {line}
-            </div>
-          ))}
-        </div>
-        <div style={{display: 'flex', flexDirection: 'column', gap: 18, opacity}}>
-          {supporting.map((item, index) => {
-            const stagger = useStaggeredItem(index, 180);
-            return (
               <div
-                key={`${item}-${index}`}
                 style={{
-                  padding: '20px 24px',
-                  borderRadius: 24,
-                  background: palette.panel,
-                  border: `1px solid ${palette.line}`,
-                  backdropFilter: 'blur(10px)',
-                  opacity: stagger.opacity,
-                  transform: `translateY(${stagger.rise}px)`,
+                  fontFamily: index === 0 ? DISPLAY_FONT : BODY_FONT,
+                  fontSize: index === 0 ? (width < height ? 48 : 64) : (width < height ? 28 : 36),
+                  lineHeight: 1.2,
+                  fontWeight: index === 0 ? 700 : 500,
+                  letterSpacing: index === 0 ? -1 : 0,
+                  color: index === 0 ? palette.text : palette.muted,
                 }}
               >
-                <div
-                  style={{
-                    fontSize: 16,
-                    letterSpacing: 2,
-                    textTransform: 'uppercase',
-                    color: palette.muted,
-                  }}
-                >
-                  {`Beat ${index + 1}`}
-                </div>
-                <div style={{marginTop: 10, fontSize: 26, lineHeight: 1.25}}>{item}</div>
+                {item.text}
               </div>
-            );
-          })}
-        </div>
+            </div>
+          );
+        })}
       </div>
     </FrameShell>
   );
@@ -445,10 +420,8 @@ const DiagramScene: React.FC<{scene: StoryScene}> = ({scene}) => {
   const palette = ROLE_PALETTES[scene.visual_role] ?? ROLE_PALETTES.evidence;
   const {width, height} = useVideoConfig();
   const {opacity, rise} = useSceneMotion('diagram');
-  const nodes = [scene.on_screen_text[0] ?? scene.purpose, ...splitNarration(scene.narration, 3)].slice(
-    0,
-    4
-  );
+  const ostItems = resolveOSTList(scene.on_screen_text);
+  const nodes = ostItems.length > 0 ? ostItems : [{text: scene.purpose}];
 
   return (
     <FrameShell scene={scene}>
@@ -475,7 +448,7 @@ const DiagramScene: React.FC<{scene: StoryScene}> = ({scene}) => {
               maxWidth: '90%',
             }}
           >
-            {scene.on_screen_text[0] ?? scene.purpose}
+            {nodes[0]?.text ?? scene.purpose}
           </div>
           <div
             style={{
@@ -490,10 +463,10 @@ const DiagramScene: React.FC<{scene: StoryScene}> = ({scene}) => {
         </div>
         <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18}}>
           {nodes.map((node, index) => {
-            const stagger = useStaggeredItem(index, 140);
+            const stagger = useStaggeredItem(index, 140, node.appear_at_ms);
             return (
               <div
-                key={`${node}-${index}`}
+                key={`${node.text}-${index}`}
                 style={{
                   minHeight: 150,
                   padding: '22px 24px',
@@ -522,7 +495,7 @@ const DiagramScene: React.FC<{scene: StoryScene}> = ({scene}) => {
                   {index === 0 ? 'Core' : `Step 0${index}`}
                 </div>
                 <div style={{fontSize: width < height ? 26 : 32, lineHeight: 1.2, fontWeight: 600}}>
-                  {node}
+                  {node.text}
                 </div>
               </div>
             );
@@ -537,44 +510,27 @@ const TimelineScene: React.FC<{scene: StoryScene}> = ({scene}) => {
   const palette = ROLE_PALETTES[scene.visual_role] ?? ROLE_PALETTES.process;
   const {width, height} = useVideoConfig();
   const {opacity, rise} = useSceneMotion('timeline');
-  const beats = splitNarration(scene.narration, 5);
+  const ostItems = resolveOSTList(scene.on_screen_text);
+  const beats = ostItems.length > 0 ? ostItems : splitNarration(scene.narration, 5).map(t => ({text: t, appear_at_ms: undefined}));
 
   return (
     <FrameShell scene={scene}>
       <div
         style={{
-          display: 'grid',
-          gridTemplateColumns: width >= height ? '0.72fr 1.28fr' : '1fr',
+          display: 'flex',
+          flexDirection: 'column',
           gap: 28,
-          alignItems: 'start',
+          justifyContent: 'center',
           opacity,
           transform: `translateY(${rise}px)`,
         }}
       >
         <div style={{display: 'flex', flexDirection: 'column', gap: 18}}>
-          <div style={{fontSize: 18, letterSpacing: 3, textTransform: 'uppercase', color: palette.muted}}>
-            Role Map
-          </div>
-          <div
-            style={{
-              fontFamily: DISPLAY_FONT,
-              fontSize: width < height ? 58 : 82,
-              lineHeight: 0.96,
-              fontWeight: 700,
-            }}
-          >
-            {scene.on_screen_text[0] ?? scene.purpose}
-          </div>
-          <div style={{fontSize: width < height ? 22 : 28, lineHeight: 1.35, color: palette.muted}}>
-            {scene.on_screen_text.slice(1).join(' / ')}
-          </div>
-        </div>
-        <div style={{display: 'flex', flexDirection: 'column', gap: 18}}>
           {beats.map((beat, index) => {
-            const stagger = useStaggeredItem(index, 160);
+            const stagger = useStaggeredItem(index, 160, beat.appear_at_ms);
             return (
               <div
-                key={`${beat}-${index}`}
+                key={`${beat.text}-${index}`}
                 style={{
                   display: 'grid',
                   gridTemplateColumns: '84px 1fr',
@@ -609,7 +565,7 @@ const TimelineScene: React.FC<{scene: StoryScene}> = ({scene}) => {
                     lineHeight: 1.28,
                   }}
                 >
-                  {beat}
+                  {beat.text}
                 </div>
               </div>
             );
@@ -624,45 +580,27 @@ const SummaryListScene: React.FC<{scene: StoryScene}> = ({scene}) => {
   const palette = ROLE_PALETTES[scene.visual_role] ?? ROLE_PALETTES.summary;
   const {width, height} = useVideoConfig();
   const {opacity, rise} = useSceneMotion('summary-list');
-  const items =
-    scene.on_screen_text.length > 0
-      ? scene.on_screen_text
-      : splitNarration(scene.narration, 4);
-  const sideText = splitNarration(scene.narration, 2).join('。');
+  const ostItems = resolveOSTList(scene.on_screen_text);
+  const items = ostItems.length > 0 ? ostItems : splitNarration(scene.narration, 4).map(t => ({text: t, appear_at_ms: undefined}));
 
   return (
     <FrameShell scene={scene}>
       <div
         style={{
-          display: 'grid',
-          gridTemplateColumns: width >= height ? '0.88fr 1.12fr' : '1fr',
-          gap: 32,
-          alignItems: 'center',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 20,
+          justifyContent: 'center',
           opacity,
           transform: `translateY(${rise}px)`,
         }}
       >
-        <div style={{display: 'flex', flexDirection: 'column', gap: 20}}>
-          <div
-            style={{
-              fontFamily: DISPLAY_FONT,
-              fontSize: width < height ? 60 : 88,
-              lineHeight: 0.95,
-              fontWeight: 700,
-            }}
-          >
-            {scene.on_screen_text[0] ?? scene.purpose}
-          </div>
-          <div style={{fontSize: width < height ? 22 : 30, lineHeight: 1.34, color: palette.muted}}>
-            {sideText}
-          </div>
-        </div>
         <div style={{display: 'grid', gap: 16}}>
           {items.map((item, index) => {
-            const stagger = useStaggeredItem(index, 130);
+            const stagger = useStaggeredItem(index, 130, item.appear_at_ms);
             return (
               <div
-                key={`${item}-${index}`}
+                key={`${item.text}-${index}`}
                 style={{
                   display: 'grid',
                   gridTemplateColumns: '90px 1fr',
@@ -686,7 +624,7 @@ const SummaryListScene: React.FC<{scene: StoryScene}> = ({scene}) => {
                 >
                   0{index + 1}
                 </div>
-                <div style={{fontSize: width < height ? 24 : 30, lineHeight: 1.22}}>{item}</div>
+                <div style={{fontSize: width < height ? 24 : 30, lineHeight: 1.22}}>{item.text}</div>
               </div>
             );
           })}
@@ -700,7 +638,7 @@ const QuoteScene: React.FC<{scene: StoryScene}> = ({scene}) => {
   const palette = ROLE_PALETTES[scene.visual_role] ?? ROLE_PALETTES.evidence;
   const {width, height} = useVideoConfig();
   const {opacity, rise} = useSceneMotion('quote');
-  const quoteText = splitNarration(scene.narration, 2).join('。');
+  const ostItems = resolveOSTList(scene.on_screen_text);
 
   return (
     <FrameShell scene={scene}>
@@ -723,29 +661,28 @@ const QuoteScene: React.FC<{scene: StoryScene}> = ({scene}) => {
             color: palette.accentSoft,
           }}
         >
-          "
+          &ldquo;
         </div>
-        <div
-          style={{
-            fontFamily: DISPLAY_FONT,
-            fontSize: width < height ? 52 : 78,
-            lineHeight: 1.02,
-            fontWeight: 700,
-            maxWidth: '74%',
-          }}
-        >
-          {scene.on_screen_text[0] ?? scene.purpose}
-        </div>
-        <div
-          style={{
-            maxWidth: '76%',
-            fontSize: width < height ? 24 : 32,
-            lineHeight: 1.32,
-            color: palette.muted,
-          }}
-        >
-          {quoteText}
-        </div>
+        {ostItems.map((item, index) => {
+          const stagger = useStaggeredItem(index, 200, item.appear_at_ms);
+          return (
+            <div
+              key={`${item.text}-${index}`}
+              style={{
+                fontFamily: index === 0 ? DISPLAY_FONT : BODY_FONT,
+                fontSize: index === 0 ? (width < height ? 52 : 78) : (width < height ? 28 : 36),
+                lineHeight: 1.1,
+                fontWeight: index === 0 ? 700 : 400,
+                maxWidth: '76%',
+                color: index === 0 ? palette.text : palette.muted,
+                opacity: stagger.opacity,
+                transform: `translateY(${stagger.rise}px)`,
+              }}
+            >
+              {item.text}
+            </div>
+          );
+        })}
       </div>
     </FrameShell>
   );
@@ -810,7 +747,7 @@ const ImageLedScene: React.FC<{scene: StoryScene}> = ({scene}) => {
               fontWeight: 700,
             }}
           >
-            {scene.on_screen_text[0] ?? scene.purpose}
+            {resolveOST(scene.on_screen_text[0] ?? scene.purpose).text}
           </div>
           <div style={{fontSize: width < height ? 22 : 30, lineHeight: 1.34, color: palette.muted}}>
             {splitNarration(scene.narration, 3).join('。')}

@@ -14,6 +14,12 @@ export type VisualType =
   | 'timeline'
   | 'summary-list';
 
+export type OnScreenTextItem = {
+  text: string;
+  appear_at_ms?: number;
+  anchor?: string;
+};
+
 export type StoryScene = {
   id: string;
   start_sec: number;
@@ -22,7 +28,7 @@ export type StoryScene = {
   source_refs: string[];
   interpretation_note?: string;
   narration: string;
-  on_screen_text: string[];
+  on_screen_text: (string | OnScreenTextItem)[];
   visual_role: VisualRole;
   visual_type: VisualType;
   asset_refs: string[];
